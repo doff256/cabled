@@ -32,31 +32,41 @@ if (-not $isAdmin) {
 Start-Transcript -Path (Join-Path $repo 'build\vcam-install.log') -Force | Out-Null
 try {
     $dest = Join-Path $env:ProgramFiles 'Cabled\Dev'
-    $dll = Join-Path $dest 'cabled_vcam_mf.dll'
 
+    # Try to stop Frame Server so it drops old DLLs; not required (see versioned copies below).
+    # It fails while an app has a camera open, which is fine.
     foreach ($svc in 'FrameServer', 'FrameServerMonitor') {
         $s = Get-Service $svc -ErrorAction SilentlyContinue
         if ($s -and $s.Status -ne 'Stopped') {
-            Write-Host "Stopping $svc"
-            Stop-Service $svc -Force
+            try { Stop-Service $svc -Force -ErrorAction Stop; Write-Host "Stopped $svc" }
+            catch { Write-Host "Couldn't stop $svc (a camera is probably in use) - continuing" }
         }
     }
 
     if ($Uninstall) {
-        if (Test-Path $dll) {
-            & regsvr32.exe /s /u $dll
-            Write-Host "Unregistered COM class (regsvr32 exit $LASTEXITCODE)"
-        }
+        $clsidKey = 'HKLM:\SOFTWARE\Classes\CLSID\{5A7CE6A3-D22D-4EF6-BC88-E7775C0315E6}'
+        Remove-Item $clsidKey -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Host "Unregistered COM class"
         Remove-Item $dest -Recurse -Force -ErrorAction SilentlyContinue
-        Write-Host "Removed $dest"
+        Write-Host "Removed $dest (files still in use are deleted after a restart of Frame Server)"
         exit 0
     }
 
+    # Each install gets its own file name, so a DLL that Frame Server still has loaded never blocks
+    # the update: new camera sessions load the newly registered file.
     $src = Join-Path $repo 'build\bin\Release'
     New-Item -ItemType Directory -Force $dest | Out-Null
-    Copy-Item (Join-Path $src 'cabled_vcam_mf.dll') $dest -Force
-    Copy-Item (Join-Path $src 'cabled-vcam.exe') $dest -Force
-    Write-Host "Copied to $dest"
+    $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+    $dll = Join-Path $dest "cabled_vcam_mf-$stamp.dll"
+    Copy-Item (Join-Path $src 'cabled_vcam_mf.dll') $dll -Force
+    Copy-Item (Join-Path $src 'cabled-vcam.exe') $dest -Force -ErrorAction SilentlyContinue
+    Write-Host "Copied to $dll"
+
+    # Old copies: delete the ones nothing has loaded any more.
+    Get-ChildItem $dest -Filter 'cabled_vcam_mf*.dll' | Where-Object { $_.FullName -ne $dll } | ForEach-Object {
+        try { Remove-Item $_.FullName -Force -ErrorAction Stop; Write-Host "Removed old $($_.Name)" }
+        catch { Write-Host "Keeping $($_.Name) for now (still loaded)" }
+    }
 
     $logs = Join-Path $env:ProgramData 'Cabled\logs'
     New-Item -ItemType Directory -Force $logs | Out-Null
