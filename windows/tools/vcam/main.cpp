@@ -259,7 +259,7 @@ int cmdSelftest(const std::wstring& dllPath) {
                 ++failures;
                 continue;
             }
-            const bool timed = i == 0 || i == 2;  // 1080p30 and 1080p60: check pacing
+            const bool timed = i == 0 || i == 2 || i == 10;  // 1080p30, 1080p60, 1080p120: check pacing
             const ReadStats s = readFrames(reader.Get(), timed ? 2.0 : 10.0, timed ? 0 : 8);
             std::printf("[%lu] %s\n", i, typeText(info).c_str());
             printStats(s);

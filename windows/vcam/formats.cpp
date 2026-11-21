@@ -16,6 +16,9 @@ const std::vector<AdvertisedFormat>& AdvertisedFormats() {
         {MFVideoFormat_NV12, 3840, 2160, 30}, {MFVideoFormat_NV12, 3840, 2160, 60},
         {MFVideoFormat_NV12, 2560, 1440, 30}, {MFVideoFormat_YUY2, 1920, 1080, 30},
         {MFVideoFormat_YUY2, 1280, 720, 30},  {MFVideoFormat_RGB32, 1280, 720, 30},
+        // High frame rates from the iPhone's slow-motion modes (OBS / local recording; call apps cap at 30).
+        {MFVideoFormat_NV12, 1920, 1080, 120}, {MFVideoFormat_NV12, 1280, 720, 120},
+        {MFVideoFormat_NV12, 1280, 720, 240},
     };
     return kFormats;
 }
