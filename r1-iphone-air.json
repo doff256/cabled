@@ -1,40 +1,54 @@
 {
-  "clockOffsetNs": 0,
+  "clockOffsetNs": -33875222017109,
   "down": {
-    "bytes": 0,
-    "chunks": 0,
+    "bytes": 196042104,
+    "chunks": 2991,
     "corruptChunks": 0,
     "error": "",
-    "mbps": 0.0,
-    "ok": false,
+    "mbps": 312.3223887233351,
+    "ok": true,
     "outOfOrderChunks": 0,
-    "peerMbps": 0.0,
-    "ran": false,
-    "seconds": 0.0
+    "peerMbps": 313.4890068295643,
+    "ran": true,
+    "seconds": 5.019853
   },
-  "error": "no HELLO from the phone: connection closed or timed out",
-  "ok": false,
-  "peerHello": null,
-  "peerStatus": null,
+  "error": "",
+  "ok": true,
+  "peerHello": {
+    "app": "Cabled",
+    "appVersion": "0.1.0",
+    "bind": "loopback",
+    "build": "2",
+    "model": "iPhone18,4",
+    "protocol": "0.1",
+    "role": "phone",
+    "signingExpiry": "2026-11-28T11:18:20Z",
+    "system": "iOS 27.2.1"
+  },
+  "peerStatus": {
+    "battery": 0.3499999940395355,
+    "charging": true,
+    "thermal": "nominal"
+  },
   "rtt": {
-    "count": 0,
-    "maxMs": 0.0,
-    "medianMs": 0.0,
-    "minMs": 0.0,
-    "p95Ms": 0.0
+    "count": 50,
+    "maxMs": 28.0588,
+    "medianMs": 1.8032,
+    "minMs": 1.6916,
+    "p95Ms": 2.737
   },
   "tool": "cabled-probe 0.1.0",
   "transport": "usbmux",
   "up": {
-    "bytes": 0,
-    "chunks": 0,
+    "bytes": 117585936,
+    "chunks": 1794,
     "corruptChunks": 0,
     "error": "",
-    "mbps": 0.0,
-    "ok": false,
+    "mbps": 183.02730656545256,
+    "ok": true,
     "outOfOrderChunks": 0,
-    "peerMbps": 0.0,
-    "ran": false,
-    "seconds": 0.0
+    "peerMbps": 183.02730656545256,
+    "ran": true,
+    "seconds": 5.0106898
   }
 }
