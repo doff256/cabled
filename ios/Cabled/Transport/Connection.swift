@@ -11,6 +11,11 @@ final class Connection {
     // connection was shut down the instant it arrived).
     private let fdLock = NSLock()
     private var fdClosed = false
+    // Writes come from the connection thread, the video sender and camera notifications.
+    private let writeLock = NSLock()
+    private let videoLock = NSLock()
+    private var pipeline: VideoPipeline?
+    private var videoOut: VideoOutQueue?
 
     // State of a PC -> phone ("up") probe while it runs.
     private var upActive = false
@@ -48,6 +53,7 @@ final class Connection {
     private func run() {
         var reason = "PC disconnected"
         defer {
+            stopVideo()
             fdLock.lock()
             fdClosed = true
             Darwin.close(fd)
@@ -105,14 +111,88 @@ final class Connection {
                 context.emit(.probeDown(mbps: mbps))
                 log(String(format: "PC measured %.1f Mbit/s from the phone", mbps))
             }
+        case .configure:
+            configure(WireCodec.parseJSON(message.payload) ?? [:])
+        case .keyframeRequest:
+            videoLock.lock()
+            let p = pipeline
+            videoLock.unlock()
+            p?.requestKeyframe()
         case .bye:
             return "PC ended the session"
         case .error:
             log("PC error: \(message.text)")
-        case .pong, .log, .status:
+        case .pong, .log, .status, .configured, .video:
             break
         }
         return nil
+    }
+
+    // MARK: Video
+
+    private func configure(_ request: [String: Any]) {
+        stopVideo()
+        if (request["enabled"] as? Bool) == false {
+            send(.configured, json: ["ok": true, "enabled": false])
+            context.emit(.streaming(nil))
+            log("Video stopped by the PC")
+            return
+        }
+        var settings = VideoPipeline.Settings()
+        if let w = request["width"] as? Int { settings.width = Int32(w) }
+        if let h = request["height"] as? Int { settings.height = Int32(h) }
+        if let fps = request["fps"] as? Double { settings.fps = fps }
+        if let bitrate = request["bitrate"] as? Int { settings.bitrate = bitrate }
+
+        let out = VideoOutQueue(send: { [weak self] bytes in self?.sendAll(bytes) ?? false },
+                                onStall: { [weak self] in
+                                    guard let self else { return }
+                                    self.videoLock.lock()
+                                    let p = self.pipeline
+                                    self.videoLock.unlock()
+                                    p?.requestKeyframe()
+                                })
+        let pipeline = VideoPipeline(
+            onEncoded: { avcc, keyframe, ptsNs in out.push(avcc: avcc, keyframe: keyframe, ptsNs: ptsNs) },
+            onStatus: { [weak self] status in self?.cameraStatusChanged(status) })
+        do {
+            videoLock.lock()
+            self.pipeline = pipeline
+            self.videoOut = out
+            videoLock.unlock()
+            out.start()
+            let applied = try pipeline.start(settings)
+            send(.configured, json: ["ok": true, "enabled": true, "codec": "h264",
+                                     "width": Int(applied.width), "height": Int(applied.height),
+                                     "fps": applied.fps, "bitrate": settings.bitrate,
+                                     "lowLatencyRateControl": applied.lowLatencyRateControl])
+            let description = "Streaming \(applied.width)×\(applied.height) @ \(Int(applied.fps))"
+            context.emit(.streaming(description))
+            log(description + (applied.lowLatencyRateControl ? " (low-latency encoder)" : ""))
+        } catch {
+            stopVideo()
+            send(.configured, json: ["ok": false, "error": "\(error)"])
+            log("Camera failed to start: \(error)")
+        }
+    }
+
+    private func stopVideo() {
+        videoLock.lock()
+        let p = pipeline, out = videoOut
+        pipeline = nil
+        videoOut = nil
+        videoLock.unlock()
+        out?.stop()
+        p?.stop()
+    }
+
+    private func cameraStatusChanged(_ status: [String: Any]) {
+        var body = status
+        body["thermal"] = DeviceInfo.thermalStateName(ProcessInfo.processInfo.thermalState)
+        send(.status, json: body)
+        let session = status["session"] as? String ?? "?"
+        let reason = status["reason"] as? String ?? ""
+        log("Camera \(session)\(reason.isEmpty ? "" : " (\(reason))")")
     }
 
     // MARK: Probes
@@ -187,7 +267,9 @@ final class Connection {
     }
 
     private func sendAll(_ bytes: [UInt8]) -> Bool {
-        bytes.withUnsafeBytes { raw -> Bool in
+        writeLock.lock()
+        defer { writeLock.unlock() }
+        return bytes.withUnsafeBytes { raw -> Bool in
             guard var pointer = raw.baseAddress else { return true }
             var remaining = raw.count
             while remaining > 0 {

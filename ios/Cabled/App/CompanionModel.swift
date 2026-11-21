@@ -1,3 +1,4 @@
+import AVFoundation
 import Combine
 import Foundation
 import UIKit
@@ -21,6 +22,9 @@ final class CompanionModel: ObservableObject {
 
     func start() {
         guard server == nil else { return }
+        if AVCaptureDevice.authorizationStatus(for: .video) == .notDetermined {
+            AVCaptureDevice.requestAccess(for: .video) { _ in }  // the PC can't start video without it
+        }
         UIDevice.current.isBatteryMonitoringEnabled = true
         UIApplication.shared.isIdleTimerDisabled = true  // auto-lock would kill the session
 
@@ -88,6 +92,12 @@ final class CompanionModel: ObservableObject {
             lastDownMbps = mbps
         case .probeUp(let mbps):
             lastUpMbps = mbps
+        case .streaming(let description):
+            if let description {
+                stateLine = description
+            } else if isConnected {
+                stateLine = "Connected to PC"
+            }
         case .log(let line):
             append(line)
         }

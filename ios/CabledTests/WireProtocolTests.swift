@@ -51,6 +51,28 @@ final class WireProtocolTests: XCTestCase {
         XCTAssertNil(WireCodec.verifyProbeChunk(corrupted))
     }
 
+    /// Same vector as Video.HeaderRoundTripWithMetadata in windows/tests/video_tests.cpp.
+    func testVideoHeaderMatchesWindows() {
+        let header = VideoMessage.encodeHeader(ptsNs: 0x1122334455667788, frameSeq: 42, codec: 1,
+                                               flags: VideoMessage.flagKeyframe | VideoMessage.flagDiscontinuity,
+                                               metaLength: 3)
+        XCTAssertEqual(header, [0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, 42, 0, 0, 0, 1, 5, 3, 0])
+    }
+
+    func testVideoMessageFraming() throws {
+        let avcc: [UInt8] = [0, 0, 0, 1, 0x65]
+        let bytes = VideoMessage.message(ptsNs: 7, frameSeq: 9, flags: VideoMessage.flagKeyframe, avcc: avcc)
+        let (message, used) = try XCTUnwrap(WireCodec.decode(bytes))
+        XCTAssertEqual(used, bytes.count)
+        XCTAssertEqual(message.type, .video)
+        XCTAssertEqual(message.payload.count, VideoMessage.headerSize + avcc.count)
+        XCTAssertEqual(message.payload[8], 9)                  // frameSeq
+        XCTAssertEqual(message.payload[13], 1)                 // keyframe flag
+        XCTAssertEqual(Array(message.payload[16...]), avcc)
+        XCTAssertEqual(MessageType.configure.rawValue, 0x0021)
+        XCTAssertEqual(MessageType.keyframeRequest.rawValue, 0x0031)
+    }
+
     func testPingPong() {
         var ping = [UInt8](repeating: 0, count: 8)
         WireCodec.writeLE64(&ping, at: 0, 123_456_789)

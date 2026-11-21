@@ -17,6 +17,7 @@ enum CompanionEvent {
     case pingCount(Int)
     case probeDown(mbps: Double)
     case probeUp(mbps: Double)
+    case streaming(String?)  // description while video flows, nil when it stops
     case log(String)
 }
 

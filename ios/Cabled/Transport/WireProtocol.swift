@@ -33,6 +33,41 @@ enum MessageType: UInt16 {
     case probeData = 0x0011
     case probeEnd = 0x0012
     case probeResult = 0x0013
+    case configure = 0x0021
+    case configured = 0x0022
+    case video = 0x0030
+    case keyframeRequest = 0x0031
+}
+
+/// VIDEO payload (docs/transport-and-protocol.md): 16-byte little-endian header
+/// (u64 ptsNs, u32 frameSeq, u8 codec, u8 flags, u16 metaLength), metadata, then AVCC NAL units.
+enum VideoMessage {
+    static let headerSize = 16
+    static let codecH264: UInt8 = 1
+    static let flagKeyframe: UInt8 = 1 << 0
+    static let flagDiscontinuity: UInt8 = 1 << 2
+
+    static func encodeHeader(ptsNs: UInt64, frameSeq: UInt32, codec: UInt8, flags: UInt8, metaLength: UInt16) -> [UInt8] {
+        var out = [UInt8](repeating: 0, count: headerSize)
+        WireCodec.writeLE64(&out, at: 0, ptsNs)
+        for i in 0..<4 { out[8 + i] = UInt8(truncatingIfNeeded: frameSeq >> (8 * UInt32(i))) }
+        out[12] = codec
+        out[13] = flags
+        out[14] = UInt8(truncatingIfNeeded: metaLength)
+        out[15] = UInt8(truncatingIfNeeded: metaLength >> 8)
+        return out
+    }
+
+    /// A complete wire message (8-byte message header + VIDEO payload) in one buffer.
+    static func message(ptsNs: UInt64, frameSeq: UInt32, flags: UInt8, avcc: [UInt8]) -> [UInt8] {
+        let header = encodeHeader(ptsNs: ptsNs, frameSeq: frameSeq, codec: codecH264, flags: flags, metaLength: 0)
+        var out = [UInt8](repeating: 0, count: WireProtocol.headerSize)
+        out.reserveCapacity(WireProtocol.headerSize + headerSize + avcc.count)
+        WireCodec.writeHeader(into: &out, type: .video, payloadCount: headerSize + avcc.count)
+        out += header
+        out += avcc
+        return out
+    }
 }
 
 struct WireMessage {
@@ -148,7 +183,9 @@ enum WireCodec {
     }
 }
 
-/// Monotonic clock in nanoseconds, used for PONG timestamps and probe timing.
+/// Monotonic clock in nanoseconds for PONG timestamps and probe timing. CLOCK_UPTIME_RAW is
+/// mach_absolute_time, the same clock camera sample buffers are stamped with (host time clock), so
+/// VIDEO ptsNs and PONG phoneTimeNs are directly comparable on the PC.
 func monotonicNanos() -> UInt64 {
-    clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW)
+    clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
 }
