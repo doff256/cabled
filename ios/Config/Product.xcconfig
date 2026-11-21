@@ -1,0 +1,12 @@
+// Product identity: the one place the (working) name lives on iOS (D-23).
+CABLED_DISPLAY_NAME = Cabled
+
+// SideStore/AltStore rewrite the bundle ID when they sign, so nothing may depend on it.
+// For Xcode installs with a free Apple ID, the ID must be unique to you: override it in Local.xcconfig.
+CABLED_BUNDLE_ID = dev.cabled.companion
+
+// Your Apple team (Xcode → Settings → Accounts → Personal Team). Set it in Local.xcconfig.
+CABLED_DEVELOPMENT_TEAM =
+
+// Optional, git-ignored, per-developer overrides.
+#include? "Local.xcconfig"

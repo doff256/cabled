@@ -1,0 +1,6 @@
+// Copy to Local.xcconfig (git-ignored) and fill in.
+// Team ID: Xcode → Settings → Accounts → your Apple ID → Personal Team (10 characters).
+CABLED_DEVELOPMENT_TEAM = ABCDE12345
+
+// Free Apple IDs need a bundle ID nobody else has registered. Use something personal.
+CABLED_BUNDLE_ID = com.yourname.cabled

@@ -1,0 +1,66 @@
+name: iOS
+
+on:
+  push:
+    paths: ["ios/**", ".github/workflows/ios.yml"]
+  pull_request:
+    paths: ["ios/**", ".github/workflows/ios.yml"]
+  workflow_dispatch:
+
+jobs:
+  test-and-package:
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: ios
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show Xcode
+        run: xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate project
+        run: xcodegen generate
+
+      - name: Unit tests (simulator)
+        run: |
+          set -o pipefail
+          UDID=$(xcrun simctl list devices available -j | python3 -c "
+          import json, sys
+          devices = json.load(sys.stdin)['devices']
+          print(next(d['udid'] for runtime, ds in sorted(devices.items(), reverse=True)
+                     if 'iOS' in runtime for d in ds if d['name'].startswith('iPhone')))
+          ")
+          echo "Simulator: $UDID"
+          xcodebuild test \
+            -project Cabled.xcodeproj -scheme Cabled \
+            -destination "id=$UDID" \
+            CODE_SIGNING_ALLOWED=NO | tee test.log | grep -E "Test Case|error:|failed|passed|TEST" || true
+          grep -q "TEST SUCCEEDED" test.log
+
+      - name: Build unsigned app
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project Cabled.xcodeproj -scheme Cabled -configuration Release \
+            -sdk iphoneos -destination "generic/platform=iOS" \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            | tail -n 30
+
+      - name: Package IPA
+        run: |
+          rm -rf Payload Cabled.ipa
+          mkdir Payload
+          cp -R build/Build/Products/Release-iphoneos/Cabled.app Payload/
+          zip -qry Cabled.ipa Payload
+          ls -la Cabled.ipa
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cabled-ipa
+          path: ios/Cabled.ipa
