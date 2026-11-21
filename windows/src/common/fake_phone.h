@@ -33,6 +33,7 @@ struct Options {
     double throttleMbps = 0;              // > 0 limits probe throughput, to imitate a slow link
     std::shared_ptr<const Clip> clip;     // video to stream after CONFIGURE (none = CONFIGURED fails)
     uint32_t dropEveryFrames = 0;         // > 0: silently lose every Nth video frame (tests recovery)
+    std::string videoMeta;                // VIDEO metadata on every frame, e.g. faces JSON (R7)
     // Misbehaviour scenarios, timed from when video starts (0 = off). Each fires once per connection.
     double disconnectAfterSeconds = 0;  // drop the connection, like unplugging the cable (F1)
     double pauseAfterSeconds = 0;       // report "interrupted: background", stop video... (F5)

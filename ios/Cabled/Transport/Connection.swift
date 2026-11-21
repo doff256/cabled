@@ -166,7 +166,9 @@ final class Connection {
                                 })
         out.setCodec(hevc: settings.hevc)
         let pipeline = VideoPipeline(
-            onEncoded: { avcc, keyframe, ptsNs in out.push(avcc: avcc, keyframe: keyframe, ptsNs: ptsNs) },
+            onEncoded: { avcc, keyframe, ptsNs, meta in
+                out.push(avcc: avcc, keyframe: keyframe, ptsNs: ptsNs, meta: meta)
+            },
             onStatus: { [weak self] status in self?.cameraStatusChanged(status) },
             onControlState: { [weak self] state in self?.send(.controlState, json: state) })
         do {

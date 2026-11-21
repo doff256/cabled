@@ -70,7 +70,7 @@ VcamOutput::State VcamOutput::publishBgra(const uint8_t* bgra, uint32_t width, u
     return s;
 }
 
-VcamOutput::State VcamOutput::publish(const AVFrame* frame, int64_t captureQpc) {
+VcamOutput::State VcamOutput::publish(const AVFrame* frame, int64_t captureQpc, const CropRect* crop) {
     const State s = state();
     if (s != State::Streaming) {
         // Keep the source's "engine is alive" view fresh even when we have nothing to send.
@@ -84,7 +84,7 @@ VcamOutput::State VcamOutput::publish(const AVFrame* frame, int64_t captureQpc) 
     if (bytes == 0) return s;
     buffer_.resize(bytes);
     const vcam::FrameView view = vcam::packedView(fourcc, w, hh, buffer_.data());
-    if (converter_.convert(frame, view)) ring_.publish(view, captureQpc);
+    if (converter_.convert(frame, view, crop)) ring_.publish(view, captureQpc);
     return s;
 }
 

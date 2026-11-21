@@ -51,6 +51,8 @@ cabled_engine* cabled_engine_create(const char* configJson) {
         c.hardwareDecode = j.value("hardwareDecode", c.hardwareDecode);
         c.virtualCamera = j.value("virtualCamera", c.virtualCamera);
         c.previewMaxWidth = j.value("previewMaxWidth", c.previewMaxWidth);
+        c.framing = j.value("framing", c.framing);
+        c.debugFaces = j.value("debugFaces", c.debugFaces);
     }
     auto* handle = new cabled_engine();
     c.log = [handle](const std::string& line) {
@@ -106,6 +108,10 @@ void cabled_engine_set_camera(cabled_engine* e, const char* cameraId) {
 
 void cabled_engine_set_zoom(cabled_engine* e, double zoom, int32_t smooth) {
     if (e) e->engine->setZoom(zoom, smooth != 0);
+}
+
+void cabled_engine_set_framing(cabled_engine* e, int32_t enabled) {
+    if (e) e->engine->setFraming(enabled != 0);
 }
 
 int32_t cabled_engine_take_log(cabled_engine* e, char* buffer, int32_t capacity) {

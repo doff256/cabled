@@ -5,6 +5,8 @@ extern "C" {
 #include <libswscale/swscale.h>
 }
 
+#include <algorithm>
+
 namespace cabled::engine {
 namespace {
 
@@ -36,19 +38,58 @@ FrameConverter::~FrameConverter() {
     if (sws_) sws_freeContext(sws_);
 }
 
-bool FrameConverter::convert(const AVFrame* src, const vcam::FrameView& dst) {
+bool FrameConverter::convert(const AVFrame* src, const vcam::FrameView& dst, const CropRect* crop) {
     if (!src || !dst.valid()) return false;
+
+    // Crop window, on even pixels so the 4:2:0 chroma planes stay aligned.
+    int cx = 0, cy = 0, cw = src->width, ch = src->height;
+    if (crop) {
+        cw = std::clamp(int(crop->w + 0.5) & ~1, 2, src->width & ~1);
+        ch = std::clamp(int(crop->h + 0.5) & ~1, 2, src->height & ~1);
+        cx = std::clamp(int(crop->x) & ~1, 0, (src->width - cw) & ~1);
+        cy = std::clamp(int(crop->y) & ~1, 0, (src->height - ch) & ~1);
+    }
+    const uint8_t* planes[4] = {src->data[0], src->data[1], src->data[2], nullptr};
+    const int strides[4] = {src->linesize[0], src->linesize[1], src->linesize[2], 0};
+    switch (src->format) {
+        case AV_PIX_FMT_NV12:
+            planes[0] += size_t(cy) * strides[0] + cx;
+            planes[1] += size_t(cy / 2) * strides[1] + cx;  // interleaved UV: one byte pair per 2 pixels
+            break;
+        case AV_PIX_FMT_YUV420P:
+        case AV_PIX_FMT_YUVJ420P:
+            planes[0] += size_t(cy) * strides[0] + cx;
+            planes[1] += size_t(cy / 2) * strides[1] + cx / 2;
+            planes[2] += size_t(cy / 2) * strides[2] + cx / 2;
+            break;
+        case AV_PIX_FMT_BGRA:
+            planes[0] += size_t(cy) * strides[0] + size_t(cx) * 4;
+            break;
+        default:  // unknown layout: no cropping
+            cx = cy = 0;
+            cw = src->width;
+            ch = src->height;
+    }
+
     // Fast path: same format and size -> straight copy, no resampling.
-    if (src->format == AV_PIX_FMT_NV12 && dst.fourcc == vcam::kFourccNV12 && uint32_t(src->width) == dst.width &&
-        uint32_t(src->height) == dst.height) {
+    if (src->format == AV_PIX_FMT_NV12 && dst.fourcc == vcam::kFourccNV12 && uint32_t(cw) == dst.width &&
+        uint32_t(ch) == dst.height) {
         lastWasCopy_ = true;
-        return vcam::copyFrame(viewOf(src), dst);
+        vcam::FrameView v;
+        v.fourcc = vcam::kFourccNV12;
+        v.width = uint32_t(cw);
+        v.height = uint32_t(ch);
+        v.plane0 = const_cast<uint8_t*>(planes[0]);
+        v.pitch0 = uint32_t(strides[0]);
+        v.plane1 = const_cast<uint8_t*>(planes[1]);
+        v.pitch1 = uint32_t(strides[1]);
+        return vcam::copyFrame(v, dst);
     }
     lastWasCopy_ = false;
     const AVPixelFormat dstFormat = ffFormat(dst.fourcc);
     if (dstFormat == AV_PIX_FMT_NONE) return false;
-    sws_ = sws_getCachedContext(sws_, src->width, src->height, AVPixelFormat(src->format), int(dst.width),
-                                int(dst.height), dstFormat, SWS_BICUBIC, nullptr, nullptr, nullptr);
+    sws_ = sws_getCachedContext(sws_, cw, ch, AVPixelFormat(src->format), int(dst.width), int(dst.height), dstFormat,
+                                SWS_BICUBIC, nullptr, nullptr, nullptr);
     if (!sws_) return false;
 
     // BT.709 limited range in; BT.709 out (limited for YUV, full for RGB). docs/video-pipeline.md, Colour.
@@ -58,7 +99,7 @@ bool FrameConverter::convert(const AVFrame* src, const vcam::FrameView& dst) {
 
     uint8_t* dstData[4] = {dst.plane0, dst.plane1, nullptr, nullptr};
     int dstStride[4] = {int(dst.pitch0), int(dst.pitch1), 0, 0};
-    const int rows = sws_scale(sws_, src->data, src->linesize, 0, src->height, dstData, dstStride);
+    const int rows = sws_scale(sws_, planes, strides, 0, ch, dstData, dstStride);
     return rows == int(dst.height);
 }
 

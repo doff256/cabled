@@ -109,6 +109,7 @@ add_library(cabled_engine STATIC
     src/engine/decoder.cpp
     src/engine/engine.cpp
     src/engine/frame_convert.cpp
+    src/engine/framing.cpp
     src/engine/negotiator.cpp
     src/engine/status_card.cpp
     src/engine/vcam_output.cpp)
@@ -138,7 +139,8 @@ add_executable(cabled_tests
     tests/vcam_shared_tests.cpp
     tests/video_tests.cpp
     tests/engine_tests.cpp
-    tests/negotiator_tests.cpp)
+    tests/negotiator_tests.cpp
+    tests/framing_tests.cpp)
 target_link_libraries(cabled_tests PRIVATE cabled_common cabled_vcam_shared cabled_engine GTest::gtest_main)
 target_compile_definitions(cabled_tests PRIVATE CABLED_TESTDATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/testdata")
 cabled_warnings(cabled_tests)

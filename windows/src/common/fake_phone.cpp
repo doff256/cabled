@@ -160,7 +160,9 @@ private:
             discontinuity = false;
             const bool lost = dropEvery_ > 0 && h.frameSeq % dropEvery_ == 0;  // simulated loss in transit
             if (!lost) {
-                const auto payload = video::buildPayload(h, nullptr, 0, unit.data(), unit.size());
+                const auto& meta = options_.videoMeta;
+                const auto payload = video::buildPayload(h, reinterpret_cast<const uint8_t*>(meta.data()), meta.size(),
+                                                         unit.data(), unit.size());
                 if (!link_.message(Type::Video, payload.data(), payload.size())) return;
             }
             index = (index + 1) % clip_->units.size();

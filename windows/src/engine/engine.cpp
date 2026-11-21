@@ -2,6 +2,7 @@
 
 #include "decoder.h"
 #include "frame_convert.h"
+#include "framing.h"
 #include "negotiator.h"
 #include "product.h"
 #include "protocol.h"
@@ -52,6 +53,7 @@ nlohmann::json EngineStatus::toJson() const {
             {"vcam", {{"state", vcam}, {"inUse", vcamInUse}}},
             {"link", {{"mbps", linkMbps}, {"config", videoConfig}}},
             {"camera", {{"current", camera}, {"zoom", zoom}, {"lens", lens}, {"list", cameras}}},
+            {"framing", {{"enabled", framing}, {"faces", faces}}},
             {"phone", {{"thermal", thermal}, {"battery", battery}}}};
 }
 
@@ -65,7 +67,49 @@ struct Packet {
     uint64_t captureNs = 0;
     bool flushFirst = false;
     bool hevc = false;
+    std::string meta;  // VIDEO metadata (JSON): faces from the phone
 };
+
+// {"faces":[{"id":1,"x":..,"y":..,"w":..,"h":..}]}; coordinates normalized to the sent frame.
+std::vector<Face> parseFaces(const std::string& meta) {
+    std::vector<Face> faces;
+    if (meta.empty()) return faces;
+    const auto j = nlohmann::json::parse(meta, nullptr, false);
+    if (j.is_discarded() || !j.is_object()) return faces;
+    for (const auto& f : j.value("faces", nlohmann::json::array())) {
+        Face face;
+        face.id = f.value("id", -1);
+        face.x = f.value("x", 0.0);
+        face.y = f.value("y", 0.0);
+        face.w = f.value("w", 0.0);
+        face.h = f.value("h", 0.0);
+        if (face.w > 0 && face.h > 0) faces.push_back(face);
+    }
+    return faces;
+}
+
+// Debug overlay: an unfilled rectangle in a BGRA image.
+void drawBox(std::vector<uint8_t>& bgra, uint32_t w, uint32_t h, double x0, double y0, double x1, double y1,
+             uint8_t r, uint8_t g, uint8_t b) {
+    const int ix0 = std::clamp(int(x0), 0, int(w) - 1), ix1 = std::clamp(int(x1), 0, int(w) - 1);
+    const int iy0 = std::clamp(int(y0), 0, int(h) - 1), iy1 = std::clamp(int(y1), 0, int(h) - 1);
+    auto put = [&](int x, int y) {
+        uint8_t* p = &bgra[(size_t(y) * w + size_t(x)) * 4];
+        p[0] = b;
+        p[1] = g;
+        p[2] = r;
+    };
+    for (int t = 0; t < 2; ++t) {
+        for (int x = ix0; x <= ix1; ++x) {
+            put(x, std::min(iy0 + t, int(h) - 1));
+            put(x, std::max(iy1 - t, 0));
+        }
+        for (int y = iy0; y <= iy1; ++y) {
+            put(std::min(ix0 + t, int(w) - 1), y);
+            put(std::max(ix1 - t, 0), y);
+        }
+    }
+}
 
 std::wstring widen(const std::string& s) {
     if (s.empty()) return {};
@@ -146,6 +190,11 @@ struct Engine::Impl {
     uint64_t pendingSinceNs = 0;
     bool configured = false;
     std::atomic<bool> renegotiateNow{false};  // user picked a camera: skip the debounce
+
+    // Auto-framing (R7): decode thread only, except the on/off flag.
+    std::atomic<bool> framingEnabled{true};
+    Framer framer;
+    FramingSettings framingSettings;
 
     // User preferences (R6), separate lock so currentWant() can be called under choiceMutex.
     std::mutex prefsMutex;
@@ -269,6 +318,7 @@ struct Engine::Impl {
     }
 
     Want withCamera(Want w) {
+        w.framing = framingEnabled;
         std::lock_guard<std::mutex> lock(prefsMutex);
         w.camera = wantedCamera;
         return w;
@@ -574,6 +624,7 @@ void Engine::Impl::runSession(net::Socket& s) {
                 }
                 p.seq = seq;
                 p.hevc = v->header.codec == video::Codec::HEVC;
+                if (v->metaSize) p.meta.assign(reinterpret_cast<const char*>(v->meta), v->metaSize);
                 p.captureNs = uint64_t(int64_t(v->header.ptsNs) - clockOffsetNs.load());
                 bool overflow = false;
                 {
@@ -716,18 +767,43 @@ void Engine::Impl::onFrame(const AVFrame* f, const Packet& p, uint64_t decodeSta
 
     if (cfg.frameSink) cfg.frameSink(f, p.seq);
 
+    // Auto-framing: one crop for both the camera and the preview, at the app's output shape
+    // (or the default shape when only the preview is watching). Also aspect-fills portrait video.
+    uint32_t outW = cfg.width, outH = cfg.height;
+    double outFps = 0;
     if (cfg.virtualCamera) {
         std::lock_guard<std::mutex> lock(vcamMutex);
-        if (vcam.publish(f, nsToQpc(p.captureNs)) == VcamOutput::State::Streaming) lastLivePublishNs = done;
+        vcam.activeFormat(outW, outH, outFps);
+    }
+    const std::vector<Face> faces = parseFaces(p.meta);
+    framingSettings.enabled = framingEnabled;
+    const CropRect crop = framer.update(faces, uint32_t(f->width), uint32_t(f->height), outW, outH,
+                                        double(p.captureNs) / 1e9, framingSettings);
+    {
+        std::lock_guard<std::mutex> lock(statusMutex);
+        st.faces = int(faces.size());
+    }
+
+    if (cfg.virtualCamera) {
+        std::lock_guard<std::mutex> lock(vcamMutex);
+        if (vcam.publish(f, nsToQpc(p.captureNs), &crop) == VcamOutput::State::Streaming) lastLivePublishNs = done;
     }
 
     if (owner->previewEnabled_ && cfg.previewMaxWidth > 0) {
-        const uint32_t pw = std::min<uint32_t>(cfg.previewMaxWidth, uint32_t(f->width)) & ~1u;
-        const uint32_t ph = uint32_t(uint64_t(pw) * uint32_t(f->height) / std::max(1, f->width)) & ~1u;
+        const uint32_t pw = std::min<uint32_t>(cfg.previewMaxWidth, uint32_t(crop.w)) & ~1u;
+        const uint32_t ph = uint32_t(double(pw) * crop.h / std::max(1.0, crop.w)) & ~1u;
         previewScratch.resize(size_t(pw) * ph * 4);
         const auto view = vcam::packedView(vcam::kFourccRGB32, pw, ph, previewScratch.data());
-        if (pw && ph && previewConverter.convert(f, view)) {
+        if (pw && ph && previewConverter.convert(f, view, &crop)) {
             for (size_t i = 3; i < previewScratch.size(); i += 4) previewScratch[i] = 255;  // BGR0 -> opaque BGRA
+            if (cfg.debugFaces) {
+                const double sx = pw / crop.w, sy = ph / crop.h;
+                for (const Face& face : faces) {
+                    drawBox(previewScratch, pw, ph, (face.x * f->width - crop.x) * sx, (face.y * f->height - crop.y) * sy,
+                            ((face.x + face.w) * f->width - crop.x) * sx, ((face.y + face.h) * f->height - crop.y) * sy,
+                            40, 220, 90);
+                }
+            }
             std::lock_guard<std::mutex> lock(previewMutex);
             preview.swap(previewScratch);
             previewWidth = pw;
@@ -835,6 +911,8 @@ void Engine::Impl::housekeepingLoop() {
 Engine::Engine(EngineConfig config) : impl_(std::make_unique<Impl>()) {
     impl_->cfg = std::move(config);
     impl_->owner = this;
+    impl_->framingEnabled = impl_->cfg.framing;
+    impl_->st.framing = impl_->cfg.framing;
 }
 
 Engine::~Engine() { stop(); }
@@ -870,6 +948,15 @@ void Engine::setCamera(const std::string& id) {
         impl_->wantedCamera = id;
     }
     impl_->renegotiateNow = true;  // housekeeping applies it within 100 ms
+}
+
+void Engine::setFraming(bool enabled) {
+    if (impl_->framingEnabled.exchange(enabled) == enabled) return;
+    {
+        std::lock_guard<std::mutex> lock(impl_->statusMutex);
+        impl_->st.framing = enabled;
+    }
+    impl_->renegotiateNow = true;  // framing changes the capture size we ask for
 }
 
 void Engine::setZoom(double display, bool smooth) {

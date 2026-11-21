@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.UI;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.Graphics;
@@ -25,8 +26,9 @@ public sealed partial class MainWindow : Window
     private bool _settingSlider;
     private DateTime _userZoomedAt = DateTime.MinValue;
     private DateTime _lastZoomSent = DateTime.MinValue;
+    private int _engineFaces = -1;
 
-    public MainWindow(string? tcpTarget)
+    public MainWindow(string? tcpTarget, bool debugFaces = false)
     {
         InitializeComponent();
         AppWindow.Resize(new SizeInt32(1100, 760));
@@ -36,7 +38,9 @@ public sealed partial class MainWindow : Window
         {
             tcpTarget = tcpTarget ?? "",
             previewMaxWidth = 960,
+            debugFaces,
         });
+        FramingSwitch.Toggled += (_, _) => _engine.SetFraming(FramingSwitch.IsOn);
         _engine.Start();
 
         _previewTimer = DispatcherQueue.CreateTimer();
@@ -128,6 +132,7 @@ public sealed partial class MainWindow : Window
             ? "in use · " + vcam.GetProperty("state").GetString()
             : "not in use");
 
+        _engineFaces = s.GetProperty("framing").GetProperty("faces").GetInt32();
         UpdateCameraControls(s.GetProperty("camera"), live || state == "idle");
 
         if (state != _state)
@@ -209,6 +214,7 @@ public sealed partial class MainWindow : Window
             _settingSlider = false;
             ZoomText.Text = $"{zoom:0.0}×";
         }
+        if (_engineFaces >= 0) ToolTipService.SetToolTip(FramingSwitch, $"Faces in view: {_engineFaces}");
         string lens = camera.GetProperty("lens").GetString() ?? "";
         LensText.Text = lens switch
         {

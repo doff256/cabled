@@ -36,7 +36,8 @@ One focused Claude Code session on one milestone, ending in a **buildable, teste
 | R3 | ✅ Both halves. iPhone Air rear camera → H.264 over USB → engine → Cabled Camera, live in OBS, "works well" per the owner (2026-11-21). **M1 reached** | [runs/R3.md](runs/R3.md) |
 | R4 | ✅ Windows side: resilient engine (reconnect, pause, watchdog, status cards in the camera), `cabled_core.dll`, first WinUI 3 app | [runs/R4.md](runs/R4.md) |
 | R5 | ✅ Negotiation (CAPS, link probe, format/codec/bitrate), idle when nobody watches, HEVC, bitrate adaptation, 4K60/1440p/1080p120 formats. Tested on the iPhone Air | [runs/R5-R6.md](runs/R5-R6.md) |
-| R6 | Built: all cameras/lenses, zoom with ramps and presets, app lens/zoom controls. Waiting for the owner's test on build 5 | [runs/R5-R6.md](runs/R5-R6.md) |
+| R6 | ✅ Cameras/lenses, zoom with ramps and presets, app lens/zoom controls. Works on the iPhone Air (17 Pro untested) | [runs/R5-R6.md](runs/R5-R6.md) |
+| R7 | Built: auto-rotation, phone face detection, framer (springs, dead zone, quality guard), aspect fill, framing toggle. Waiting for the owner's test on build 6 | [runs/R7.md](runs/R7.md) |
 
 ### Phase 0: spikes (do these first; they can change the plan)
 | Run | Goal | Exit criteria | You do |

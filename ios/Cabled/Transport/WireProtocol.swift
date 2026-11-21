@@ -64,12 +64,15 @@ enum VideoMessage {
 
     /// A complete wire message (8-byte message header + VIDEO payload) in one buffer.
     static func message(ptsNs: UInt64, frameSeq: UInt32, flags: UInt8, avcc: [UInt8],
-                        codec: UInt8 = VideoMessage.codecH264) -> [UInt8] {
-        let header = encodeHeader(ptsNs: ptsNs, frameSeq: frameSeq, codec: codec, flags: flags, metaLength: 0)
+                        codec: UInt8 = VideoMessage.codecH264, meta: [UInt8] = []) -> [UInt8] {
+        let metaBytes = meta.count <= 0xFFFF ? meta : []
+        let header = encodeHeader(ptsNs: ptsNs, frameSeq: frameSeq, codec: codec, flags: flags,
+                                  metaLength: UInt16(metaBytes.count))
         var out = [UInt8](repeating: 0, count: WireProtocol.headerSize)
-        out.reserveCapacity(WireProtocol.headerSize + headerSize + avcc.count)
-        WireCodec.writeHeader(into: &out, type: .video, payloadCount: headerSize + avcc.count)
+        out.reserveCapacity(WireProtocol.headerSize + headerSize + metaBytes.count + avcc.count)
+        WireCodec.writeHeader(into: &out, type: .video, payloadCount: headerSize + metaBytes.count + avcc.count)
         out += header
+        out += metaBytes
         out += avcc
         return out
     }

@@ -1,4 +1,4 @@
-#include "negotiator.h"
+﻿#include "negotiator.h"
 
 #include <algorithm>
 #include <cmath>
@@ -48,7 +48,7 @@ std::vector<double> CameraInfo::presets() const {
     add(minDisplay());
     for (double s : switchOver) add(s * zoomScale);  // each lens's native view
     add(1.0);
-    add(2.0);  // the classic "2×" crop of the main lens
+    add(2.0);  // the classic "2Ã—" crop of the main lens
     std::sort(p.begin(), p.end());
     return p;
 }
@@ -120,6 +120,13 @@ Choice negotiate(const PhoneCaps& caps, const Want& want, double linkMbps) {
     if (!want.consumer) return c;  // enabled = false: let the phone's camera rest
     c.enabled = true;
     const double fps = want.fps > 0 ? want.fps : 30;
+    // Auto-framing crops into the picture, so capture about twice the output in each direction
+    // (4K for a 1080p output) and the crop needs no upscaling (docs/video-pipeline.md, step 3).
+    Want sized = want;
+    if (want.framing) {
+        sized.width = want.width * 2;
+        sized.height = want.height * 2;
+    }
 
     // 0. Which camera: the user's choice if the phone has it, else the phone's default.
     const CameraInfo* camera = caps.find(want.camera);
@@ -154,12 +161,12 @@ Choice negotiate(const PhoneCaps& caps, const Want& want, double linkMbps) {
         };
         std::optional<CameraFormat> pick;
         for (const auto& f : usable) {
-            if (f.width == want.width && f.height == want.height && (!pick || better(f, *pick))) pick = f;
+            if (f.width == sized.width && f.height == sized.height && (!pick || better(f, *pick))) pick = f;
         }
         if (!pick) {
             for (const auto& f : usable) {
-                const bool covers = f.width >= want.width && f.height >= want.height;
-                const bool sameAspect = uint64_t(f.width) * want.height == uint64_t(f.height) * want.width;
+                const bool covers = f.width >= sized.width && f.height >= sized.height;
+                const bool sameAspect = uint64_t(f.width) * sized.height == uint64_t(f.height) * sized.width;
                 if (covers && sameAspect && (!pick || better(f, *pick))) pick = f;
             }
         }

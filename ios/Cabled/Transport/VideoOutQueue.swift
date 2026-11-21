@@ -43,7 +43,7 @@ final class VideoOutQueue {
     }
 
     /// Called from the encoder's output thread.
-    func push(avcc: [UInt8], keyframe: Bool, ptsNs: UInt64) {
+    func push(avcc: [UInt8], keyframe: Bool, ptsNs: UInt64, meta: [UInt8] = []) {
         var stalled = false
         condition.lock()
         defer {
@@ -64,7 +64,7 @@ final class VideoOutQueue {
         if keyframe { droppingUntilKeyframe = false }
         pending.append(VideoMessage.message(ptsNs: ptsNs, frameSeq: seq,
                                             flags: keyframe ? VideoMessage.flagKeyframe : 0, avcc: avcc,
-                                            codec: codec))
+                                            codec: codec, meta: meta))
         condition.signal()
     }
 

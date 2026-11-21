@@ -64,6 +64,8 @@ struct EngineStatus {
     std::string camera;    // id in use
     double zoom = 1;       // display units, as the phone last reported
     std::string lens;      // physical lens in use (virtual cameras switch by themselves)
+    bool framing = true;   // auto-framing on (R7)
+    int faces = 0;         // faces the phone currently sees
     nlohmann::json toJson() const;
 };
 
@@ -78,6 +80,8 @@ struct EngineConfig {
     bool virtualCamera = true;
     uint32_t previewMaxWidth = 960;  // 0 = no preview
     double watchdogSeconds = 5;      // silence before the connection is dropped
+    bool framing = true;             // auto-framing on at start (R-42)
+    bool debugFaces = false;         // draw detected faces and the framing target into the preview
     double retrySeconds = 1;
     std::function<void(const std::string&)> log;
     // Tests: every decoded frame (decode thread).
@@ -103,6 +107,8 @@ public:
     void setCamera(const std::string& id);
     // Zoom in display units ("1" = main lens, "0.5" = ultra wide). smooth = ramp instead of jump.
     void setZoom(double display, bool smooth);
+    // R7: auto-framing on/off (also changes what the phone is asked to capture).
+    void setFraming(bool enabled);
 
 private:
     struct Impl;

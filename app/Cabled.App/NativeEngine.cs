@@ -24,6 +24,7 @@ internal sealed partial class NativeEngine : IDisposable
     public void SetPreviewEnabled(bool enabled) => Native.cabled_engine_set_preview_enabled(_handle, enabled ? 1 : 0);
     public void SetCamera(string id) => Native.cabled_engine_set_camera(_handle, id);
     public void SetZoom(double zoom, bool smooth) => Native.cabled_engine_set_zoom(_handle, zoom, smooth ? 1 : 0);
+    public void SetFraming(bool enabled) => Native.cabled_engine_set_framing(_handle, enabled ? 1 : 0);
 
     public unsafe JsonDocument? Status()
     {
@@ -97,6 +98,7 @@ internal sealed partial class NativeEngine : IDisposable
         [LibraryImport(Dll, StringMarshalling = StringMarshalling.Utf8)]
         public static partial void cabled_engine_set_camera(nint engine, string cameraId);
         [LibraryImport(Dll)] public static partial void cabled_engine_set_zoom(nint engine, double zoom, int smooth);
+        [LibraryImport(Dll)] public static partial void cabled_engine_set_framing(nint engine, int enabled);
         [LibraryImport(Dll)] public static partial nint cabled_version();
     }
 }

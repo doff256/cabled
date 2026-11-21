@@ -54,6 +54,7 @@ struct Want {
     uint32_t height = 1080;
     double fps = 30;
     std::string camera;     // user's choice; empty = phone's default
+    bool framing = false;   // auto-framing crops: ask for ~2x the output so the crop stays sharp
 };
 
 struct Choice {

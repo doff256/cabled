@@ -41,6 +41,9 @@ CABLED_API void cabled_engine_set_preview_enabled(cabled_engine* engine, int32_t
 CABLED_API void cabled_engine_set_camera(cabled_engine* engine, const char* camera_id);
 CABLED_API void cabled_engine_set_zoom(cabled_engine* engine, double zoom, int32_t smooth);
 
+/* R7: auto-framing on/off (config keys: "framing", "debugFaces"). */
+CABLED_API void cabled_engine_set_framing(cabled_engine* engine, int32_t enabled);
+
 /* Engine log lines since the last call, newline-separated (same size contract as status_json). */
 CABLED_API int32_t cabled_engine_take_log(cabled_engine* engine, char* buffer, int32_t capacity);
 

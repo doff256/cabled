@@ -122,6 +122,19 @@ TEST(Negotiator, CameraLabelsAndZoomPresets) {
     EXPECT_EQ(caps.find("front")->presets(), (std::vector<double>{1}));
 }
 
+TEST(Negotiator, FramingAsksForTwiceTheOutput) {
+    Want w = app(1920, 1080, 30);
+    EXPECT_EQ(negotiate(iphoneCaps(), w, 300).width, 1920u);
+    w.framing = true;
+    const Choice c = negotiate(iphoneCaps(), w, 300);
+    EXPECT_EQ(c.width, 3840u);
+    EXPECT_EQ(c.height, 2160u);
+    // 4K output + framing: nothing covers 7680x4320, so the largest format at that rate.
+    w = app(3840, 2160, 30);
+    w.framing = true;
+    EXPECT_EQ(negotiate(iphoneCaps(), w, 300).width, 4032u);
+}
+
 TEST(Negotiator, BitrateTable) {
     EXPECT_NEAR(defaultBitrate(1920, 1080, 30) / 1e6, 25, 0.5);
     EXPECT_NEAR(defaultBitrate(1280, 720, 30) / 1e6, 15, 2);

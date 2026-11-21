@@ -295,11 +295,12 @@ TEST(Engine, NegotiatesFromCapsAndProbe) {
     std::lock_guard<std::mutex> lock(m);
     ASSERT_FALSE(configures.empty());
     EXPECT_TRUE(configures[0].value("enabled", false));
-    EXPECT_EQ(configures[0].value("width", 0), 1920);
-    EXPECT_EQ(configures[0].value("height", 0), 1080);
+    // Auto-framing is on by default (R-42): 1080p output -> ask for 4K so the crop stays sharp.
+    EXPECT_EQ(configures[0].value("width", 0), 3840);
+    EXPECT_EQ(configures[0].value("height", 0), 2160);
     EXPECT_EQ(configures[0].value("codec", ""), "h264");  // loopback link is far faster than needed
     EXPECT_GT(s.linkMbps, 100.0);
-    EXPECT_NE(s.videoConfig.find("1920x1080"), std::string::npos) << s.videoConfig;
+    EXPECT_NE(s.videoConfig.find("3840x2160"), std::string::npos) << s.videoConfig;
     EXPECT_GE(rec.frames(), 20u);
 }
 
@@ -370,6 +371,32 @@ TEST(Engine, CamerasAndZoom) {
     bool switched = false;
     for (const auto& c : configures) switched |= c.value("camera", "") == "fake-front";
     EXPECT_TRUE(switched);
+}
+
+// R7: faces in VIDEO metadata -> the framer crops in; turning framing off goes back to the full view.
+TEST(Engine, AutoFramingCropsToTheFace) {
+    auto phoneOptions = phoneWithClip();
+    phoneOptions.videoMeta = R"({"faces":[{"id":1,"x":0.45,"y":0.25,"w":0.06,"h":0.11}]})";
+    FakePhoneServer phone(phoneOptions);
+    Recorder rec;
+    auto config = configFor(phone, rec);
+    config.previewMaxWidth = 1920;  // preview = the crop at full resolution
+    engine::Engine e(config);
+    e.start();
+    std::this_thread::sleep_for(3500ms);  // let the springs settle
+    std::vector<uint8_t> bgra;
+    uint32_t w = 0, h = 0;
+    uint64_t seq = 0;
+    ASSERT_TRUE(e.copyPreview(bgra, w, h, seq));
+    EXPECT_EQ(e.status().faces, 1);
+    // A 1080p source can't be cropped without upscaling (maxUpscale 1), so the crop stays at the
+    // full 1920 width: framing correctly refuses to zoom a 1080p source.
+    EXPECT_EQ(w, 1920u);
+
+    e.setFraming(false);
+    std::this_thread::sleep_for(500ms);
+    EXPECT_FALSE(e.status().framing);
+    e.stop();
 }
 
 TEST(StatusCard, RendersReadableText) {

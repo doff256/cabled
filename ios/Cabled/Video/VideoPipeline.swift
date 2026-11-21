@@ -3,7 +3,8 @@ import Foundation
 
 /// Camera -> H.264. R3 scope: rear main camera (D-26), fixed size/fps from CONFIGURE, 420v,
 /// stabilisation off, landscape buffers (sensor orientation; auto-rotation comes in R6/R7).
-final class VideoPipeline: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
+final class VideoPipeline: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate,
+                           AVCaptureMetadataOutputObjectsDelegate {
     struct Settings {
         var width: Int32 = 1920
         var height: Int32 = 1080
@@ -27,7 +28,8 @@ final class VideoPipeline: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         let description: String
     }
 
-    typealias EncodedHandler = (_ avcc: [UInt8], _ keyframe: Bool, _ ptsNs: UInt64) -> Void
+    /// meta: VIDEO metadata for this frame (faces JSON, R7).
+    typealias EncodedHandler = (_ avcc: [UInt8], _ keyframe: Bool, _ ptsNs: UInt64, _ meta: [UInt8]) -> Void
     /// STATUS bodies when the camera is interrupted or comes back.
     typealias StatusHandler = (_ status: [String: Any]) -> Void
     /// CONTROL_STATE bodies: {camera, zoom, lens} whenever they change.
@@ -38,6 +40,22 @@ final class VideoPipeline: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     private let onControlState: ControlStateHandler
     private var controlTimer: DispatchSourceTimer?
     private var lastReported: (zoom: Double, lens: String) = (0, "")
+
+    // Rotation (R7): iOS tells us the angle that keeps the picture level; the capture hardware
+    // rotates. When the frame flips between landscape and portrait the encoder is recreated.
+    private var videoConnection: AVCaptureConnection?
+    private var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
+    private var rotationObservation: NSKeyValueObservation?
+    private var rotationAngle: CGFloat = 0  // camera queue
+    private var encoderSize: (width: Int, height: Int) = (0, 0)
+    private var encoderHevc = false
+    private var encoderFps: Double = 30
+
+    // Faces (R7): from the camera hardware, rotated into the sent frame's coordinates.
+    private let metadataOutput = AVCaptureMetadataOutput()
+    private let facesLock = NSLock()
+    private var facesMeta: [UInt8] = Array(#"{"faces":[]}"#.utf8)
+    private var facesUpdated = Date.distantPast
     private let queue = DispatchQueue(label: "cabled.camera", qos: .userInteractive)
     private var encoder: VideoEncoder?
     private let onEncoded: EncodedHandler
@@ -79,6 +97,13 @@ final class VideoPipeline: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         }
         session.addInput(input)
         session.addOutput(output)
+        if session.canAddOutput(metadataOutput) {
+            session.addOutput(metadataOutput)
+            if metadataOutput.availableMetadataObjectTypes.contains(.face) {
+                metadataOutput.metadataObjectTypes = [.face]
+                metadataOutput.setMetadataObjectsDelegate(self, queue: queue)
+            }
+        }
 
         var width = settings.width, height = settings.height
         if let format = Self.pickFormat(device, width: settings.width, height: settings.height, fps: settings.fps) {
@@ -93,8 +118,11 @@ final class VideoPipeline: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
             width = 1920
             height = 1080
         }
-        if let connection = output.connection(with: .video), connection.isVideoStabilizationSupported {
-            connection.preferredVideoStabilizationMode = .off  // adds latency and crops
+        if let connection = output.connection(with: .video) {
+            if connection.isVideoStabilizationSupported {
+                connection.preferredVideoStabilizationMode = .off  // adds latency and crops
+            }
+            videoConnection = connection
         }
         // Starting zoom: what the PC remembered for this camera, else the main lens.
         if (try? device.lockForConfiguration()) != nil {
@@ -104,18 +132,13 @@ final class VideoPipeline: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         }
         session.commitConfiguration()
 
-        let deliver: VideoEncoder.Output = { [weak self] data, keyframe, ptsNs in self?.onEncoded(data, keyframe, ptsNs) }
-        let encoder: VideoEncoder
-        if settings.hevc, let hevcEncoder = try? VideoEncoder(hevc: true, width: width, height: height,
-                                                               fps: settings.fps, bitrate: settings.bitrate,
-                                                               output: deliver) {
-            encoder = hevcEncoder
-        } else {  // H.264 asked for, or HEVC wouldn't start
-            encoder = try VideoEncoder(hevc: false, width: width, height: height, fps: settings.fps,
-                                       bitrate: settings.bitrate, output: deliver)
-        }
+        let encoder = try makeEncoder(hevc: settings.hevc, width: Int(width), height: Int(height),
+                                      fps: settings.fps, bitrate: settings.bitrate)
         queue.sync {
             self.encoder = encoder
+            self.encoderSize = (Int(width), Int(height))
+            self.encoderHevc = encoder.hevc
+            self.encoderFps = settings.fps
             self.device = device
             self.targetBitrate = settings.bitrate
             self.currentBitrate = settings.bitrate
@@ -124,9 +147,82 @@ final class VideoPipeline: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         startRecoveryTimer()
         startControlTimer()
         observeInterruptions()
+        startRotation(device)
         session.startRunning()
         return Applied(width: width, height: height, fps: settings.fps, hevc: encoder.hevc,
                        lowLatencyRateControl: encoder.lowLatencyRateControl, cameraId: device.uniqueID)
+    }
+
+    private func makeEncoder(hevc: Bool, width: Int, height: Int, fps: Double, bitrate: Int) throws -> VideoEncoder {
+        let deliver: VideoEncoder.Output = { [weak self] data, keyframe, ptsNs in
+            guard let self else { return }
+            self.onEncoded(data, keyframe, ptsNs, self.currentFacesMeta())
+        }
+        if hevc, let e = try? VideoEncoder(hevc: true, width: Int32(width), height: Int32(height), fps: fps,
+                                           bitrate: bitrate, output: deliver) {
+            return e
+        }
+        // H.264 asked for, or HEVC wouldn't start.
+        return try VideoEncoder(hevc: false, width: Int32(width), height: Int32(height), fps: fps, bitrate: bitrate,
+                                output: deliver)
+    }
+
+    // MARK: Rotation (R7)
+
+    private func startRotation(_ device: AVCaptureDevice) {
+        let coordinator = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: nil)
+        rotationCoordinator = coordinator
+        rotationObservation = coordinator.observe(\.videoRotationAngleForHorizonLevelCapture,
+                                                  options: [.initial, .new]) { [weak self] c, _ in
+            let angle = c.videoRotationAngleForHorizonLevelCapture
+            self?.queue.async { self?.applyRotation(angle) }
+        }
+    }
+
+    /// Camera queue. Frames after this come out rotated; captureOutput notices the new size.
+    private func applyRotation(_ angle: CGFloat) {
+        guard let connection = videoConnection, connection.isVideoRotationAngleSupported(angle),
+              connection.videoRotationAngle != angle else { return }
+        connection.videoRotationAngle = angle
+        rotationAngle = angle
+    }
+
+    // MARK: Faces (R7)
+
+    func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject],
+                        from connection: AVCaptureConnection) {
+        var faces: [[String: Any]] = []
+        for case let face as AVMetadataFaceObject in metadataObjects {
+            let r = Self.rotate(face.bounds, by: rotationAngle)
+            faces.append(["id": face.faceID, "x": Self.round3(r.minX), "y": Self.round3(r.minY),
+                          "w": Self.round3(r.width), "h": Self.round3(r.height)])
+        }
+        let data = (try? JSONSerialization.data(withJSONObject: ["faces": faces])) ?? Data()
+        facesLock.lock()
+        facesMeta = [UInt8](data)
+        facesUpdated = Date()
+        facesLock.unlock()
+    }
+
+    /// Faces for the frame being sent; stale detections (> 0.5 s) count as none.
+    private func currentFacesMeta() -> [UInt8] {
+        facesLock.lock()
+        defer { facesLock.unlock() }
+        if Date().timeIntervalSince(facesUpdated) > 0.5 { return Array(#"{"faces":[]}"#.utf8) }
+        return facesMeta
+    }
+
+    private static func round3(_ v: CGFloat) -> Double { (Double(v) * 1000).rounded() / 1000 }
+
+    /// Metadata comes in the sensor's unrotated, normalized coordinates (top-left origin); the frames
+    /// we send are rotated clockwise by `angle`. Map the box into the sent frame.
+    static func rotate(_ r: CGRect, by angle: CGFloat) -> CGRect {
+        switch Int(angle.rounded()) % 360 {
+        case 90: return CGRect(x: 1 - r.maxY, y: r.minX, width: r.height, height: r.width)
+        case 180: return CGRect(x: 1 - r.maxX, y: 1 - r.maxY, width: r.width, height: r.height)
+        case 270: return CGRect(x: r.minY, y: 1 - r.maxX, width: r.height, height: r.width)
+        default: return r
+        }
     }
 
     // MARK: Zoom (R6)
@@ -192,6 +288,9 @@ final class VideoPipeline: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     }
 
     func stop() {
+        rotationObservation?.invalidate()
+        rotationObservation = nil
+        rotationCoordinator = nil
         recoveryTimer?.cancel()
         recoveryTimer = nil
         controlTimer?.cancel()
@@ -213,7 +312,17 @@ final class VideoPipeline: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
 
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer,
                        from connection: AVCaptureConnection) {
-        guard let encoder, let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        guard var encoder, let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        // Rotated between landscape and portrait: the encoder must match the new frame size.
+        let w = CVPixelBufferGetWidth(pixelBuffer), h = CVPixelBufferGetHeight(pixelBuffer)
+        if w != encoderSize.width || h != encoderSize.height {
+            encoder.invalidate()
+            guard let replacement = try? makeEncoder(hevc: encoderHevc, width: w, height: h, fps: encoderFps,
+                                                     bitrate: currentBitrate) else { return }
+            self.encoder = replacement
+            encoderSize = (w, h)
+            encoder = replacement  // starts with a keyframe carrying the new size
+        }
         encoder.encode(pixelBuffer, pts: CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
     }
 

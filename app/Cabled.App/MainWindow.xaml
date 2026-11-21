@@ -64,8 +64,12 @@
                 <TextBlock x:Name="ZoomText" Grid.Column="2" MinWidth="48" VerticalAlignment="Center"
                            Style="{StaticResource BodyStrongTextBlockStyle}" Text="1.0×" />
             </Grid>
-            <TextBlock x:Name="LensText" Grid.Column="2" VerticalAlignment="Center"
-                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
+                <TextBlock x:Name="LensText" VerticalAlignment="Center"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                <ToggleSwitch x:Name="FramingSwitch" OnContent="Auto-framing" OffContent="Auto-framing"
+                              IsOn="True" MinWidth="0" />
+            </StackPanel>
         </Grid>
 
         <!-- Stats + virtual camera state -->

@@ -73,6 +73,34 @@ final class WireProtocolTests: XCTestCase {
         XCTAssertEqual(MessageType.keyframeRequest.rawValue, 0x0031)
     }
 
+    func testVideoMessageCarriesMetadata() throws {
+        let meta = Array(#"{"faces":[]}"#.utf8)
+        let bytes = VideoMessage.message(ptsNs: 1, frameSeq: 2, flags: 0, avcc: [0, 0, 0, 1, 0x41], meta: meta)
+        let (message, _) = try XCTUnwrap(WireCodec.decode(bytes))
+        XCTAssertEqual(message.payload[14], UInt8(meta.count))  // metaLength
+        XCTAssertEqual(Array(message.payload[16..<(16 + meta.count)]), meta)
+        XCTAssertEqual(Array(message.payload[(16 + meta.count)...]), [0, 0, 0, 1, 0x41])
+    }
+
+    /// Face boxes rotate with the frame (sensor coordinates -> sent frame).
+    func testFaceRotation() {
+        let r = CGRect(x: 0.1, y: 0.2, width: 0.3, height: 0.4)
+        XCTAssertEqual(VideoPipeline.rotate(r, by: 0), r)
+        let quarter = VideoPipeline.rotate(r, by: 90)
+        XCTAssertEqual(quarter.minX, 0.4, accuracy: 1e-9)  // 1 - (0.2 + 0.4)
+        XCTAssertEqual(quarter.minY, 0.1, accuracy: 1e-9)
+        XCTAssertEqual(quarter.width, 0.4, accuracy: 1e-9)
+        XCTAssertEqual(quarter.height, 0.3, accuracy: 1e-9)
+        let half = VideoPipeline.rotate(r, by: 180)
+        XCTAssertEqual(half.minX, 0.6, accuracy: 1e-9)
+        XCTAssertEqual(half.minY, 0.4, accuracy: 1e-9)
+        // Four quarter turns come back to the start.
+        var back = r
+        for _ in 0..<4 { back = VideoPipeline.rotate(back, by: 90) }
+        XCTAssertEqual(back.minX, r.minX, accuracy: 1e-9)
+        XCTAssertEqual(back.minY, r.minY, accuracy: 1e-9)
+    }
+
     func testPingPong() {
         var ping = [UInt8](repeating: 0, count: 8)
         WireCodec.writeLE64(&ping, at: 0, 123_456_789)

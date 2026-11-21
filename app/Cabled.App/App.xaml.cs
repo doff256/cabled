@@ -18,8 +18,10 @@ public partial class App : Application
         string? tcpTarget = null;
         for (int i = 1; i < argv.Length - 1; i++)
             if (argv[i] == "--tcp") tcpTarget = argv[i + 1];
+        // `--debug-faces` draws the phone's detected faces into the preview (R7 checks).
+        bool debugFaces = argv.Contains("--debug-faces");
 
-        _window = new MainWindow(tcpTarget);
+        _window = new MainWindow(tcpTarget, debugFaces);
         _window.Activate();
     }
 }
