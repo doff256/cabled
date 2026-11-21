@@ -64,8 +64,9 @@ try {
 
     # Old copies: delete the ones nothing has loaded any more.
     Get-ChildItem $dest -Filter 'cabled_vcam_mf*.dll' | Where-Object { $_.FullName -ne $dll } | ForEach-Object {
-        try { Remove-Item $_.FullName -Force -ErrorAction Stop; Write-Host "Removed old $($_.Name)" }
-        catch { Write-Host "Keeping $($_.Name) for now (still loaded)" }
+        $old = $_  # inside catch, $_ is the error, not the file
+        try { Remove-Item $old.FullName -Force -ErrorAction Stop; Write-Host "Removed old $($old.Name)" }
+        catch { Write-Host "Keeping $($old.Name) for now (still loaded)" }
     }
 
     $logs = Join-Path $env:ProgramData 'Cabled\logs'
