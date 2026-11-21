@@ -3,6 +3,20 @@ cmake_minimum_required(VERSION 3.25)
 # Some dependencies still declare cmake_minimum_required(VERSION < 3.5), which CMake 4 rejects.
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 
+# vcpkg (manifest mode, windows/vcpkg.json) provides FFmpeg. Found automatically from VCPKG_ROOT,
+# GitHub's VCPKG_INSTALLATION_ROOT, or the copy bundled with Visual Studio.
+if(NOT DEFINED CMAKE_TOOLCHAIN_FILE)
+    foreach(root "$ENV{VCPKG_ROOT}" "$ENV{VCPKG_INSTALLATION_ROOT}"
+                 "C:/Program Files (x86)/Microsoft Visual Studio/18/BuildTools/VC/vcpkg"
+                 "C:/Program Files/Microsoft Visual Studio/18/Community/VC/vcpkg"
+                 "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/vcpkg")
+        if(root AND EXISTS "${root}/scripts/buildsystems/vcpkg.cmake")
+            set(CMAKE_TOOLCHAIN_FILE "${root}/scripts/buildsystems/vcpkg.cmake" CACHE FILEPATH "")
+            break()
+        endif()
+    endforeach()
+endif()
+
 project(Cabled VERSION 0.1.0 LANGUAGES CXX)
 
 # --- Product identity: the one place the (working) name lives on Windows (D-23) ---
@@ -48,7 +62,8 @@ add_library(cabled_common STATIC
     src/common/usbmux.cpp
     src/common/protocol.cpp
     src/common/probe_session.cpp
-    src/common/fake_phone.cpp)
+    src/common/fake_phone.cpp
+    src/common/video.cpp)
 target_include_directories(cabled_common PUBLIC src/common ${CMAKE_BINARY_DIR}/generated)
 target_link_libraries(cabled_common PUBLIC pugixml::pugixml nlohmann_json::nlohmann_json ws2_32)
 cabled_warnings(cabled_common)
@@ -88,6 +103,23 @@ target_link_libraries(cabled-vcam PRIVATE cabled_vcam_shared mfplat mfuuid mf mf
 cabled_warnings(cabled-vcam)
 add_dependencies(cabled-vcam cabled_vcam_mf)
 
+# --- Engine (R3): receive -> FFmpeg decode -> virtual camera ---
+find_package(FFMPEG REQUIRED)  # from vcpkg (windows/vcpkg.json), LGPL DLLs
+add_library(cabled_engine STATIC
+    src/engine/decoder.cpp
+    src/engine/frame_convert.cpp
+    src/engine/session.cpp
+    src/engine/vcam_output.cpp)
+target_include_directories(cabled_engine PUBLIC src/engine)
+target_include_directories(cabled_engine SYSTEM PUBLIC ${FFMPEG_INCLUDE_DIRS})
+target_link_directories(cabled_engine PUBLIC ${FFMPEG_LIBRARY_DIRS})
+target_link_libraries(cabled_engine PUBLIC cabled_common cabled_vcam_shared ${FFMPEG_LIBRARIES})
+cabled_warnings(cabled_engine)
+
+add_executable(cabled-engine tools/engine/main.cpp)
+target_link_libraries(cabled-engine PRIVATE cabled_engine)
+cabled_warnings(cabled-engine)
+
 # --- Tests ---
 enable_testing()
 add_executable(cabled_tests
@@ -95,8 +127,11 @@ add_executable(cabled_tests
     tests/usbmux_tests.cpp
     tests/protocol_tests.cpp
     tests/probe_integration_tests.cpp
-    tests/vcam_shared_tests.cpp)
-target_link_libraries(cabled_tests PRIVATE cabled_common cabled_vcam_shared GTest::gtest_main)
+    tests/vcam_shared_tests.cpp
+    tests/video_tests.cpp
+    tests/engine_tests.cpp)
+target_link_libraries(cabled_tests PRIVATE cabled_common cabled_vcam_shared cabled_engine GTest::gtest_main)
+target_compile_definitions(cabled_tests PRIVATE CABLED_TESTDATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/testdata")
 cabled_warnings(cabled_tests)
 include(GoogleTest)
 gtest_discover_tests(cabled_tests DISCOVERY_TIMEOUT 30)

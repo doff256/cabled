@@ -92,7 +92,13 @@ u8[]                AVCC length-prefixed NAL units; parameter sets (SPS/PPS/VPS)
 | 0x0011 | PROBE_DATA | binary: `u64 seq`, then `byte[i] = i & 0xFF` for i ≥ 8 (lets the receiver detect corruption and gaps) |
 | 0x0012 | PROBE_END | JSON `{direction, bytes, seconds, chunks}` from the sender |
 | 0x0013 | PROBE_RESULT | JSON `{direction, bytes, seconds, mbps}` from the receiver |
-| 0x0020–0x0042 | CAPS, CONFIGURE, CONFIGURED, VIDEO, KEYFRAME_REQUEST, CONTROL_SET, CONTROL_STATE, STATS | Reserved, defined in later runs |
+| 0x0021 | CONFIGURE (R3) | JSON `{enabled, codec: "h264", width, height, fps, bitrate, keyframeInterval}`. `enabled:false` stops video |
+| 0x0022 | CONFIGURED (R3) | JSON `{ok, enabled, codec, width, height, fps, bitrate}` with what was **actually applied**, or `{ok:false, error}` |
+| 0x0030 | VIDEO (R3) | binary: 16-byte header (`u64 ptsNs, u32 frameSeq, u8 codec, u8 flags, u16 metaLength`) + metadata + **AVCC** NAL units (4-byte **big-endian** lengths, as VideoToolbox emits). SPS/PPS in-band on every keyframe. Flags: bit0 keyframe, bit1 config changed, bit2 discontinuity |
+| 0x0031 | KEYFRAME_REQUEST (R3) | empty. PC → phone after a gap or decode error. The PC drops frames until the next keyframe |
+| 0x0020, 0x0040–0x0042 | CAPS, CONTROL_SET, CONTROL_STATE, STATS | Reserved, defined in later runs |
+
+> **R3 note:** the Windows side and the fake phone implement CONFIGURE/CONFIGURED/VIDEO/KEYFRAME_REQUEST first. The iPhone app gains them in R3's iPhone half. The version stays **0.1** because these are pure additions (unknown types are ignored), so the R1 companion and probe keep working together. The framing is unchanged and still byte-identical on both platforms.
 
 Probe byte counts include the 8-byte message header. PING/PONG are binary rather than JSON so timestamps stay exact.
 

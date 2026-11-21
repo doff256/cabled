@@ -20,6 +20,9 @@ int main(int argc, char** argv) {
         std::printf("  %s\n", line.c_str());
         std::fflush(stdout);
     };
+    std::string clipPath;
+    uint32_t clipWidth = 1920, clipHeight = 1080;
+    double clipFps = 30;
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
         const bool hasValue = i + 1 < argc;
@@ -27,12 +30,28 @@ int main(int argc, char** argv) {
         else if (arg == "--throttle-mbps" && hasValue) options.throttleMbps = std::stod(argv[++i]);
         else if (arg == "--model" && hasValue) options.model = argv[++i];
         else if (arg == "--protocol" && hasValue) options.protocolVersion = argv[++i];
+        else if (arg == "--clip" && hasValue) clipPath = argv[++i];
+        else if (arg == "--clip-size" && hasValue) {
+            if (std::sscanf(argv[++i], "%ux%u", &clipWidth, &clipHeight) != 2) return 64;
+        } else if (arg == "--clip-fps" && hasValue) clipFps = std::stod(argv[++i]);
         else {
             std::printf(
                 "cabled-fakephone [--port 47800] [--throttle-mbps N] [--model ID] [--protocol X.Y]\n"
-                "Serves one PC at a time on 127.0.0.1, forever (Ctrl+C to stop).\n");
+                "                 [--clip file.h264 [--clip-size 1920x1080] [--clip-fps 30]]\n"
+                "Serves one PC at a time on 127.0.0.1, forever (Ctrl+C to stop). With --clip it streams\n"
+                "that Annex-B H.264 file in a loop after CONFIGURE, like the iPhone streams its camera.\n");
             return arg == "--help" || arg == "-h" ? 0 : 64;
         }
+    }
+    if (!clipPath.empty()) {
+        std::string clipError;
+        options.clip = fakephone::loadClip(clipPath, clipWidth, clipHeight, clipFps, &clipError);
+        if (!options.clip) {
+            std::fprintf(stderr, "%s\n", clipError.c_str());
+            return 2;
+        }
+        std::printf("Clip: %zu frames, %ux%u @ %.0f fps\n", options.clip->units.size(), clipWidth, clipHeight,
+                    clipFps);
     }
 
     net::WinsockSession winsock;

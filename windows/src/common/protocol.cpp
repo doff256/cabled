@@ -19,6 +19,10 @@ std::string_view typeName(Type t) {
         case Type::ProbeData: return "PROBE_DATA";
         case Type::ProbeEnd: return "PROBE_END";
         case Type::ProbeResult: return "PROBE_RESULT";
+        case Type::Configure: return "CONFIGURE";
+        case Type::Configured: return "CONFIGURED";
+        case Type::Video: return "VIDEO";
+        case Type::KeyframeRequest: return "KEYFRAME_REQUEST";
     }
     return "UNKNOWN";
 }

@@ -32,7 +32,8 @@ One focused Claude Code session on one milestone, ending in a **buildable, teste
 | Run | Status | Page |
 |-----|--------|------|
 | R1 | Built and tested on the Windows side. Waiting for the device test | [runs/R1.md](runs/R1.md) |
-| R2 | ✅ Done. Virtual camera works in MF, DirectShow and Chromium apps. D-09 settled, no DirectShow filter on 11. Optional visual check in Teams/Zoom/Discord/OBS is yours | [runs/R2.md](runs/R2.md) |
+| R2 | ✅ Done. Virtual camera works in MF, DirectShow and Chromium apps (OBS confirmed by owner). D-09 settled, no DirectShow filter on 11 | [runs/R2.md](runs/R2.md) |
+| R3 | Windows half ✅ (engine: H.264 → FFmpeg D3D11VA → Cabled Camera, 2.8 ms capture → app with the fake phone). iPhone half next, after R1's device test | [runs/R3.md](runs/R3.md) |
 
 ### Phase 0: spikes (do these first; they can change the plan)
 | Run | Goal | Exit criteria | You do |

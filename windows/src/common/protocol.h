@@ -35,8 +35,12 @@ enum class Type : uint16_t {
     ProbeData = 0x0011,
     ProbeEnd = 0x0012,
     ProbeResult = 0x0013,
-    // Reserved for later runs: Caps 0x0020, Configure 0x0021, Configured 0x0022, Video 0x0030,
-    // KeyframeRequest 0x0031, ControlSet 0x0040, ControlState 0x0041, Stats 0x0042.
+    // R3 (Windows side first; the iPhone app gains them in R3's iPhone half):
+    Configure = 0x0021,        // PC -> phone, JSON
+    Configured = 0x0022,       // phone -> PC, JSON
+    Video = 0x0030,            // phone -> PC, binary (video.h)
+    KeyframeRequest = 0x0031,  // PC -> phone, empty
+    // Reserved for later runs: Caps 0x0020, ControlSet 0x0040, ControlState 0x0041, Stats 0x0042.
 };
 
 std::string_view typeName(Type t);

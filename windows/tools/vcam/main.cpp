@@ -87,8 +87,16 @@ struct ReadStats {
     int skippedFrames = 0;
     double seconds = 0;
     std::vector<double> latencyMs;
+    std::vector<double> sampleAgeMs;
     std::string error;
 };
+
+void printDistribution(const char* label, std::vector<double> v) {
+    if (v.empty()) return;
+    std::sort(v.begin(), v.end());
+    std::printf("  %s: min %.1f ms, median %.1f ms, p95 %.1f ms, max %.1f ms\n", label, v.front(), v[v.size() / 2],
+                v[std::min(v.size() - 1, v.size() * 95 / 100)], v.back());
+}
 
 ReadStats readFrames(IMFSourceReader* reader, double seconds, int maxFrames) {
     ReadStats stats;
@@ -120,6 +128,13 @@ ReadStats readFrames(IMFSourceReader* reader, double seconds, int maxFrames) {
         }
         if (!sample) continue;
         const int64_t receivedQpc = qpcNow();
+        // Our media source stamps samples with capture time on the MFGetSystemTime clock, so this is
+        // capture -> app latency whatever produced the frame (only meaningful if it's plausible).
+        LONGLONG sampleTime = 0;
+        if (SUCCEEDED(sample->GetSampleTime(&sampleTime))) {
+            const double ageMs = double(MFGetSystemTime() - sampleTime) / 10000.0;
+            if (ageMs > 0 && ageMs < 5000) stats.sampleAgeMs.push_back(ageMs);
+        }
         if (stats.frames == 0) firstFrame = std::chrono::steady_clock::now();
         ++stats.frames;
 
@@ -164,12 +179,13 @@ void printStats(const ReadStats& s) {
     const double fps = s.seconds > 0 && s.frames > 1 ? (s.frames - 1) / s.seconds : 0;
     std::printf("  %d frames in %.2f s = %.1f fps  (feeder %d, placeholder %d, repeated %d, skipped %d)\n", s.frames,
                 s.seconds, fps, s.feederFrames, s.placeholderFrames, s.repeatedFrames, s.skippedFrames);
-    if (!s.latencyMs.empty()) {
-        std::vector<double> v = s.latencyMs;
-        std::sort(v.begin(), v.end());
-        std::printf("  feeder -> app latency: min %.1f ms, median %.1f ms, p95 %.1f ms, max %.1f ms\n", v.front(),
-                    v[v.size() / 2], v[std::min(v.size() - 1, v.size() * 95 / 100)], v.back());
+    // The stamp's timestamp band is only live when `feed` drew the frame; clips carry 0 there.
+    std::vector<double> stampLatency;
+    for (double ms : s.latencyMs) {
+        if (ms > 0 && ms < 5000) stampLatency.push_back(ms);
     }
+    printDistribution("feeder -> app latency (stamp)", stampLatency);
+    printDistribution("capture -> app latency (sample age)", s.sampleAgeMs);
     if (!s.error.empty()) std::printf("  ERROR: %s\n", s.error.c_str());
 }
 
@@ -438,6 +454,25 @@ int cmdCheck(const std::wstring& nameFilter, double seconds, int typeIndex) {
     return 3;
 }
 
+// Raw NV12 frames of the test pattern (frame numbers 1..N, timestamp band 0), for encoding the H.264
+// test clips in windows/testdata with an external encoder.
+int cmdRawPattern(uint32_t width, uint32_t height, int frames, const std::wstring& out) {
+    FILE* f = nullptr;
+    if (_wfopen_s(&f, out.c_str(), L"wb") != 0 || !f) {
+        std::fprintf(stderr, "Can't write %s\n", narrow(out).c_str());
+        return 2;
+    }
+    std::vector<uint8_t> frame(packedFrameBytes(kFourccNV12, width, height));
+    const FrameView view = packedView(kFourccNV12, width, height, frame.data());
+    for (int i = 1; i <= frames; ++i) {
+        drawTestPattern(view, uint32_t(i), 0);
+        fwrite(frame.data(), 1, frame.size(), f);
+    }
+    fclose(f);
+    std::printf("Wrote %d NV12 frames %ux%u to %s\n", frames, width, height, narrow(out).c_str());
+    return 0;
+}
+
 std::wstring defaultDllPath() {
     wchar_t exe[MAX_PATH];
     GetModuleFileNameW(nullptr, exe, MAX_PATH);
@@ -456,6 +491,8 @@ constexpr const char* kUsage = R"(cabled-vcam - R2 virtual camera spike tool
   cabled-vcam feed [--seconds <s>]         Engine side: write test frames into the frame ring
   cabled-vcam check [--name <part>] [--seconds <s>] [--type <i>]
                                            Open the camera like an app and measure fps / latency
+  cabled-vcam rawpattern --out <file> [--width 1920] [--height 1080] [--frames 120]
+                                           Dump raw NV12 test-pattern frames (for making test clips)
 )";
 
 }  // namespace
@@ -473,6 +510,9 @@ int wmain(int argc, wchar_t** argv) {
     bool session = false, allUsers = false;
     double seconds = command == L"check" ? 5.0 : 0.0;
     int typeIndex = -1;
+    uint32_t width = 1920, height = 1080;
+    int frames = 120;
+    std::wstring out;
     for (int i = 2; i < argc; ++i) {
         const std::wstring a = argv[i];
         const bool hasValue = i + 1 < argc;
@@ -482,6 +522,10 @@ int wmain(int argc, wchar_t** argv) {
         else if (a == L"--all-users") allUsers = true;
         else if (a == L"--seconds" && hasValue) seconds = _wtof(argv[++i]);
         else if (a == L"--type" && hasValue) typeIndex = _wtoi(argv[++i]);
+        else if (a == L"--width" && hasValue) width = uint32_t(_wtoi(argv[++i]));
+        else if (a == L"--height" && hasValue) height = uint32_t(_wtoi(argv[++i]));
+        else if (a == L"--frames" && hasValue) frames = _wtoi(argv[++i]);
+        else if (a == L"--out" && hasValue) out = argv[++i];
         else {
             std::fprintf(stderr, "Unknown option %s\n\n%s", narrow(a).c_str(), kUsage);
             return 64;
@@ -495,6 +539,7 @@ int wmain(int argc, wchar_t** argv) {
     else if (command == L"list") rc = cmdList();
     else if (command == L"feed") rc = cmdFeed(seconds);
     else if (command == L"check") rc = cmdCheck(filter, seconds, typeIndex);
+    else if (command == L"rawpattern" && !out.empty()) rc = cmdRawPattern(width, height, frames, out);
     else std::printf("%s", kUsage);
 
     MFShutdown();

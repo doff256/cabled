@@ -16,10 +16,10 @@
 | Area | Choice | Licence |
 |------|--------|---------|
 | Language | C++20, MSVC (Visual Studio 2022/2026 Build Tools, v143+) | — |
-| Build | CMake + FetchContent for the small header/source deps (pugixml, nlohmann/json, GoogleTest). vcpkg comes in when FFmpeg arrives (R3) (D-28) | — |
+| Build | CMake. FetchContent for the small deps (pugixml, nlohmann/json, GoogleTest). **vcpkg manifest** (`windows/vcpkg.json`, baseline 2026.10.16) for FFmpeg, found automatically from VS's bundled vcpkg / `VCPKG_ROOT` / CI (D-28). Our code uses the static CRT; FFmpeg DLLs use the dynamic one | — |
 | COM / Win32 helpers | WIL (Windows Implementation Library) | MIT |
 | Graphics | Direct3D 11 + HLSL compute/pixel shaders | — |
-| Decode | FFmpeg **libavcodec + libavutil** only, D3D11VA hwaccel, **dynamically linked, LGPL build** (no `--enable-gpl`, no x264/x265) | LGPL-2.1 |
+| Decode | FFmpeg **9.0.2: libavcodec + libavutil + libswscale** only, D3D11VA hwaccel, **dynamically linked, LGPL build** (no `--enable-gpl`, no x264/x265). swscale is the CPU conversion stand-in until the GPU pipeline (R7) | LGPL-2.1 |
 | JSON | nlohmann/json | MIT |
 | Plist (usbmux) | pugixml for XML plist | MIT |
 | Virtual camera Windows 11 | Media Foundation, `MFCreateVirtualCamera`. Structure based on Microsoft Windows-Camera VirtualCamera sample | MIT (sample) |

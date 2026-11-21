@@ -7,12 +7,26 @@ on:
     paths: ["windows/**", ".github/workflows/windows.yml"]
   workflow_dispatch:
 
+env:
+  # vcpkg builds FFmpeg from source (windows/vcpkg.json). Cache the built packages between runs.
+  VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\vcpkg-cache
+
 jobs:
   build-and-test:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
+      - name: Prepare vcpkg cache folder
+        run: New-Item -ItemType Directory -Force vcpkg-cache | Out-Null
+
+      - name: Restore vcpkg binary cache
+        uses: actions/cache@v4
+        with:
+          path: vcpkg-cache
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('windows/vcpkg.json') }}
+
+      # The toolchain is found through VCPKG_INSTALLATION_ROOT (preinstalled on GitHub runners).
       - name: Configure
         run: cmake -S windows -B build
 
@@ -29,7 +43,6 @@ jobs:
         with:
           name: cabled-windows-tools
           path: |
-            build/bin/Release/cabled-probe.exe
-            build/bin/Release/cabled-fakephone.exe
-            build/bin/Release/cabled-vcam.exe
-            build/bin/Release/cabled_vcam_mf.dll
+            build/bin/Release/*.exe
+            build/bin/Release/*.dll
+            windows/testdata/*.h264
