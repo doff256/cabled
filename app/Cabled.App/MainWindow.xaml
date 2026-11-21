@@ -14,6 +14,7 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <!-- Status: what's happening and what to do next (windows-app.md) -->
@@ -43,8 +44,32 @@
             </Grid>
         </Border>
 
+        <!-- Lens + zoom (R6) -->
+        <Grid x:Name="CameraControls" Grid.Row="2" ColumnSpacing="16" Visibility="Collapsed">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel x:Name="LensPanel" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" />
+            <Grid x:Name="ZoomRow" Grid.Column="1" ColumnSpacing="8" VerticalAlignment="Center">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel x:Name="PresetPanel" Orientation="Horizontal" Spacing="4" />
+                <Slider x:Name="ZoomSlider" Grid.Column="1" Minimum="0" Maximum="1000" StepFrequency="1"
+                        IsThumbToolTipEnabled="False" VerticalAlignment="Center" MinWidth="160" />
+                <TextBlock x:Name="ZoomText" Grid.Column="2" MinWidth="48" VerticalAlignment="Center"
+                           Style="{StaticResource BodyStrongTextBlockStyle}" Text="1.0×" />
+            </Grid>
+            <TextBlock x:Name="LensText" Grid.Column="2" VerticalAlignment="Center"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+        </Grid>
+
         <!-- Stats + virtual camera state -->
-        <Grid Grid.Row="2" ColumnSpacing="16">
+        <Grid Grid.Row="3" ColumnSpacing="16">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />

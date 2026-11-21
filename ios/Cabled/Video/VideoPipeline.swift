@@ -10,6 +10,8 @@ final class VideoPipeline: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         var fps: Double = 30
         var bitrate: Int = 25_000_000
         var hevc = false
+        var cameraId: String?  // nil = default (rear main, D-26)
+        var zoom: Double = 0    // device zoom factor; 0 = the camera's default
     }
 
     struct Applied {
@@ -18,6 +20,7 @@ final class VideoPipeline: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         var fps: Double
         var hevc: Bool
         var lowLatencyRateControl: Bool
+        var cameraId: String
     }
 
     struct PipelineError: Error, CustomStringConvertible {
@@ -27,8 +30,14 @@ final class VideoPipeline: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     typealias EncodedHandler = (_ avcc: [UInt8], _ keyframe: Bool, _ ptsNs: UInt64) -> Void
     /// STATUS bodies when the camera is interrupted or comes back.
     typealias StatusHandler = (_ status: [String: Any]) -> Void
+    /// CONTROL_STATE bodies: {camera, zoom, lens} whenever they change.
+    typealias ControlStateHandler = (_ state: [String: Any]) -> Void
 
     private let session = AVCaptureSession()
+    private var device: AVCaptureDevice?
+    private let onControlState: ControlStateHandler
+    private var controlTimer: DispatchSourceTimer?
+    private var lastReported: (zoom: Double, lens: String) = (0, "")
     private let queue = DispatchQueue(label: "cabled.camera", qos: .userInteractive)
     private var encoder: VideoEncoder?
     private let onEncoded: EncodedHandler
@@ -40,9 +49,11 @@ final class VideoPipeline: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     private var lastStall = Date.distantPast
     private var recoveryTimer: DispatchSourceTimer?
 
-    init(onEncoded: @escaping EncodedHandler, onStatus: @escaping StatusHandler) {
+    init(onEncoded: @escaping EncodedHandler, onStatus: @escaping StatusHandler,
+         onControlState: @escaping ControlStateHandler) {
         self.onEncoded = onEncoded
         self.onStatus = onStatus
+        self.onControlState = onControlState
     }
 
     deinit { stop() }
@@ -52,8 +63,8 @@ final class VideoPipeline: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         guard AVCaptureDevice.authorizationStatus(for: .video) == .authorized else {
             throw PipelineError(description: "Camera access is off. Allow it in Settings → Cabled → Camera.")
         }
-        guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
-            throw PipelineError(description: "No rear camera found")
+        guard let device = CameraCatalog.device(id: settings.cameraId) else {
+            throw PipelineError(description: "No camera found")
         }
         let input = try AVCaptureDeviceInput(device: device)
         let output = AVCaptureVideoDataOutput()
@@ -85,6 +96,12 @@ final class VideoPipeline: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         if let connection = output.connection(with: .video), connection.isVideoStabilizationSupported {
             connection.preferredVideoStabilizationMode = .off  // adds latency and crops
         }
+        // Starting zoom: what the PC remembered for this camera, else the main lens.
+        if (try? device.lockForConfiguration()) != nil {
+            let wanted = settings.zoom > 0 ? settings.zoom : CameraCatalog.defaultZoom(device)
+            device.videoZoomFactor = CGFloat(clampZoom(wanted, device))
+            device.unlockForConfiguration()
+        }
         session.commitConfiguration()
 
         let deliver: VideoEncoder.Output = { [weak self] data, keyframe, ptsNs in self?.onEncoded(data, keyframe, ptsNs) }
@@ -99,14 +116,55 @@ final class VideoPipeline: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         }
         queue.sync {
             self.encoder = encoder
+            self.device = device
             self.targetBitrate = settings.bitrate
             self.currentBitrate = settings.bitrate
+            self.lastReported = (0, "")
         }
         startRecoveryTimer()
+        startControlTimer()
         observeInterruptions()
         session.startRunning()
         return Applied(width: width, height: height, fps: settings.fps, hevc: encoder.hevc,
-                       lowLatencyRateControl: encoder.lowLatencyRateControl)
+                       lowLatencyRateControl: encoder.lowLatencyRateControl, cameraId: device.uniqueID)
+    }
+
+    // MARK: Zoom (R6)
+
+    private func clampZoom(_ factor: Double, _ device: AVCaptureDevice) -> Double {
+        min(max(factor, Double(device.minAvailableVideoZoomFactor)), CameraCatalog.maxZoom(device))
+    }
+
+    /// rampRate > 0: glide there (in powers of two per second); 0: jump.
+    func setZoom(_ factor: Double, rampRate: Double) {
+        queue.async {
+            guard let device = self.device, (try? device.lockForConfiguration()) != nil else { return }
+            let target = CGFloat(self.clampZoom(factor, device))
+            if rampRate > 0 {
+                device.ramp(toVideoZoomFactor: target, withRate: Float(rampRate))
+            } else {
+                device.cancelVideoZoomRamp()
+                device.videoZoomFactor = target
+            }
+            device.unlockForConfiguration()
+        }
+    }
+
+    /// Reports zoom and the active lens to the PC when they change (also during ramps).
+    private func startControlTimer() {
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + 0.1, repeating: 0.2)
+        timer.setEventHandler { [weak self] in
+            guard let self, let device = self.device else { return }
+            let zoom = (Double(device.videoZoomFactor) * 100).rounded() / 100
+            let lens = CameraCatalog.lensName(device)
+            if zoom != self.lastReported.zoom || lens != self.lastReported.lens {
+                self.lastReported = (zoom, lens)
+                self.onControlState(["camera": device.uniqueID, "zoom": zoom, "lens": lens])
+            }
+        }
+        timer.resume()
+        controlTimer = timer
     }
 
     /// The link couldn't keep up (send queue overflowed): drop the bitrate by a quarter, down to a
@@ -136,6 +194,8 @@ final class VideoPipeline: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     func stop() {
         recoveryTimer?.cancel()
         recoveryTimer = nil
+        controlTimer?.cancel()
+        controlTimer = nil
         for o in observers { NotificationCenter.default.removeObserver(o) }
         observers.removeAll()
         if session.isRunning { session.stopRunning() }
@@ -155,33 +215,6 @@ final class VideoPipeline: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                        from connection: AVCaptureConnection) {
         guard let encoder, let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         encoder.encode(pixelBuffer, pts: CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
-    }
-
-    // MARK: Capabilities (CAPS, R5)
-
-    /// The rear main camera's 420v formats (≥ 1280 wide), deduplicated, for the PC's negotiator.
-    static func capabilities() -> [String: Any] {
-        var formats: [[String: Any]] = []
-        if let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) {
-            var seen: [String: Int] = [:]  // key -> index in formats
-            for format in device.formats {
-                guard CMFormatDescriptionGetMediaSubType(format.formatDescription)
-                        == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange else { continue }
-                let d = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
-                guard d.width >= 1280 else { continue }
-                let maxFps = format.videoSupportedFrameRateRanges.map(\.maxFrameRate).max() ?? 30
-                let minFps = format.videoSupportedFrameRateRanges.map(\.minFrameRate).min() ?? 1
-                let key = "\(d.width)x\(d.height)/\(format.isVideoBinned)"
-                if let i = seen[key] {
-                    if maxFps > (formats[i]["maxFps"] as? Double ?? 0) { formats[i]["maxFps"] = maxFps }
-                    continue
-                }
-                seen[key] = formats.count
-                formats.append(["width": Int(d.width), "height": Int(d.height), "minFps": minFps,
-                                "maxFps": maxFps, "binned": format.isVideoBinned])
-            }
-        }
-        return ["camera": "back-wide", "codecs": ["h264", "hevc"], "formats": formats]
     }
 
     // MARK: Helpers

@@ -18,6 +18,8 @@ extern "C" {
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
+#include <map>
 
 namespace cabled::engine {
 
@@ -49,6 +51,7 @@ nlohmann::json EngineStatus::toJson() const {
                           {"reconnects", reconnects}}},
             {"vcam", {{"state", vcam}, {"inUse", vcamInUse}}},
             {"link", {{"mbps", linkMbps}, {"config", videoConfig}}},
+            {"camera", {{"current", camera}, {"zoom", zoom}, {"lens", lens}, {"list", cameras}}},
             {"phone", {{"thermal", thermal}, {"battery", battery}}}};
 }
 
@@ -142,6 +145,12 @@ struct Engine::Impl {
     Choice pending;
     uint64_t pendingSinceNs = 0;
     bool configured = false;
+    std::atomic<bool> renegotiateNow{false};  // user picked a camera: skip the debounce
+
+    // User preferences (R6), separate lock so currentWant() can be called under choiceMutex.
+    std::mutex prefsMutex;
+    std::string wantedCamera;
+    std::map<std::string, double> zoomFactors;  // camera id -> device zoom factor
 
     // Counters
     std::atomic<uint64_t> framesDecoded{0}, bytesReceived{0}, keyframeRequests{0}, reconnects{0};
@@ -192,10 +201,46 @@ struct Engine::Impl {
         switch (m.type()) {
             case Type::Caps: {
                 const PhoneCaps parsed = parseCaps(proto::parseJson(m).value_or(nlohmann::json::object()));
-                std::lock_guard<std::mutex> lock(choiceMutex);
-                caps = parsed;
-                log("Phone camera offers " + std::to_string(parsed.formats.size()) + " formats" +
+                nlohmann::json list = nlohmann::json::array();
+                for (const auto& c : parsed.cameras) {
+                    list.push_back({{"id", c.id},
+                                    {"label", c.label()},
+                                    {"name", c.name},
+                                    {"type", c.type},
+                                    {"minZoom", c.minDisplay()},
+                                    {"maxZoom", c.maxDisplay()},
+                                    {"presets", c.presets()}});
+                }
+                {
+                    std::lock_guard<std::mutex> lock(choiceMutex);
+                    caps = parsed;
+                }
+                {
+                    std::lock_guard<std::mutex> lock(statusMutex);
+                    st.cameras = list;
+                }
+                log("Phone offers " + std::to_string(parsed.cameras.size()) + " cameras, " +
+                    std::to_string(parsed.formats.size()) + " formats on the default" +
                     (parsed.hevc ? ", HEVC" : ""));
+                break;
+            }
+            case Type::ControlState: {
+                const auto j = proto::parseJson(m).value_or(nlohmann::json::object());
+                const std::string id = j.value("camera", "");
+                const double factor = j.value("zoom", 0.0);
+                double scale = 1;
+                {
+                    std::lock_guard<std::mutex> lock(choiceMutex);
+                    if (const CameraInfo* c = caps.find(id)) scale = c->zoomScale;
+                }
+                if (factor > 0) {
+                    std::lock_guard<std::mutex> lock(prefsMutex);
+                    zoomFactors[id] = factor;  // restored on the next CONFIGURE
+                }
+                std::lock_guard<std::mutex> lock(statusMutex);
+                if (!id.empty()) st.camera = id;
+                if (factor > 0) st.zoom = std::round(factor * scale * 100) / 100;
+                st.lens = j.value("lens", st.lens);
                 break;
             }
             case Type::Log:
@@ -212,7 +257,7 @@ struct Engine::Impl {
             std::lock_guard<std::mutex> lock(vcamMutex);
             if (vcam.activeFormat(w.width, w.height, w.fps)) {
                 w.consumer = true;
-                return w;
+                return withCamera(w);
             }
         }
         // No app has the camera: only the preview (or a test sink) wants video, at the default.
@@ -220,7 +265,19 @@ struct Engine::Impl {
         w.width = cfg.width;
         w.height = cfg.height;
         w.fps = cfg.fps;
+        return withCamera(w);
+    }
+
+    Want withCamera(Want w) {
+        std::lock_guard<std::mutex> lock(prefsMutex);
+        w.camera = wantedCamera;
         return w;
+    }
+
+    double zoomFor(const std::string& camera) {
+        std::lock_guard<std::mutex> lock(prefsMutex);
+        auto it = zoomFactors.find(camera);
+        return it == zoomFactors.end() ? 0.0 : it->second;
     }
 
     // Sends CONFIGURE for `c` and updates status. Caller holds no locks.
@@ -231,11 +288,12 @@ struct Engine::Impl {
             pending = c;
             configured = true;
         }
-        sendJson(Type::Configure, c.toConfigure());
-        log("Video: " + c.describe());
+        sendJson(Type::Configure, c.toConfigure(zoomFor(c.camera)));
+        log("Video: " + c.describe() + (c.camera.empty() ? "" : " on camera " + c.camera));
         {
             std::lock_guard<std::mutex> lock(statusMutex);
             st.videoConfig = c.describe();
+            if (!c.camera.empty()) st.camera = c.camera;
         }
         if (!c.enabled) {
             setState(EngineState::Idle, "Connected", "Video starts when an app opens Cabled Camera.");
@@ -258,12 +316,13 @@ struct Engine::Impl {
                 pending = cur;
                 return;
             }
-            if (!(next == pending)) {  // a new wish: wait for it to settle (apps open/close in bursts)
+            const bool userAction = renegotiateNow.exchange(false);
+            if (!(next == pending) && !userAction) {  // a new wish: let it settle (apps open/close in bursts)
                 pending = next;
                 pendingSinceNs = now;
                 return;
             }
-            ready = now - pendingSinceNs >= 700'000'000ull;
+            ready = userAction || now - pendingSinceNs >= 700'000'000ull;
         }
         if (ready) applyChoice(next);
     }
@@ -575,6 +634,7 @@ void Engine::Impl::runSession(net::Socket& s) {
                 break;
             case Type::Log:
             case Type::Caps:
+            case Type::ControlState:
                 absorb(m);
                 break;
             case Type::Bye:
@@ -801,6 +861,32 @@ void Engine::stop() {
     if (impl_->connectionThread.joinable()) impl_->connectionThread.join();
     if (impl_->housekeepingThread.joinable()) impl_->housekeepingThread.join();
     impl_->setState(EngineState::Stopped, "Stopped", "");
+}
+
+void Engine::setCamera(const std::string& id) {
+    {
+        std::lock_guard<std::mutex> lock(impl_->prefsMutex);
+        if (impl_->wantedCamera == id) return;
+        impl_->wantedCamera = id;
+    }
+    impl_->renegotiateNow = true;  // housekeeping applies it within 100 ms
+}
+
+void Engine::setZoom(double display, bool smooth) {
+    std::string camera;
+    double factor = 0;
+    {
+        std::lock_guard<std::mutex> lock(impl_->choiceMutex);
+        camera = impl_->current.camera;
+        const CameraInfo* c = impl_->caps.find(camera);
+        if (!c || c->zoomScale <= 0) return;
+        factor = std::clamp(display / c->zoomScale, c->minZoom, c->maxZoom);
+    }
+    {
+        std::lock_guard<std::mutex> lock(impl_->prefsMutex);
+        impl_->zoomFactors[camera] = factor;
+    }
+    impl_->sendJson(Type::ControlSet, {{"zoom", factor}, {"ramp", smooth ? 4.0 : 0.0}});
 }
 
 EngineStatus Engine::status() const {

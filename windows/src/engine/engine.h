@@ -58,6 +58,12 @@ struct EngineStatus {
     double battery = -1;
     double linkMbps = 0;     // measured at connect (R5)
     std::string videoConfig;  // what was negotiated, e.g. "1920x1080@60 H.264 40 Mbit/s"
+    // Cameras and zoom (R6). `cameras`: [{id, label, name, type, minZoom, maxZoom, presets}] in
+    // display units ("1×" = main lens).
+    nlohmann::json cameras = nlohmann::json::array();
+    std::string camera;    // id in use
+    double zoom = 1;       // display units, as the phone last reported
+    std::string lens;      // physical lens in use (virtual cameras switch by themselves)
     nlohmann::json toJson() const;
 };
 
@@ -92,6 +98,11 @@ public:
     // Latest preview frame (BGRA, top-down). Returns false if there's nothing newer than `seq`.
     bool copyPreview(std::vector<uint8_t>& bgra, uint32_t& width, uint32_t& height, uint64_t& seq) const;
     void setPreviewEnabled(bool enabled) { previewEnabled_ = enabled; }
+
+    // R6. Camera by id from status().cameras (empty = phone default); applied at once.
+    void setCamera(const std::string& id);
+    // Zoom in display units ("1" = main lens, "0.5" = ultra wide). smooth = ramp instead of jump.
+    void setZoom(double display, bool smooth);
 
 private:
     struct Impl;

@@ -42,6 +42,7 @@ struct Options {
     bool sendCaps = true;  // R5 CAPS after HELLO (false = behave like an R3 companion)
     // Tests: every CONFIGURE the PC sends.
     std::function<void(const nlohmann::json&)> onConfigure;
+    std::function<void(const nlohmann::json&)> onControlSet;
 };
 
 // Serves one connected PC until it says BYE or disconnects.

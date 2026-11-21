@@ -97,7 +97,11 @@ u8[]                AVCC length-prefixed NAL units; parameter sets (SPS/PPS/VPS)
 | 0x0030 | VIDEO (R3) | binary: 16-byte header (`u64 ptsNs, u32 frameSeq, u8 codec, u8 flags, u16 metaLength`) + metadata + **AVCC** NAL units (4-byte **big-endian** lengths, as VideoToolbox emits). SPS/PPS in-band on every keyframe. Flags: bit0 keyframe, bit1 config changed, bit2 discontinuity |
 | 0x0031 | KEYFRAME_REQUEST (R3) | empty. PC → phone after a gap or decode error. The PC drops frames until the next keyframe |
 | 0x0020 | CAPS (R5) | JSON phone → PC right after HELLO: `{camera, codecs: ["h264","hevc"], formats: [{width, height, minFps, maxFps, binned}]}`. Rear main camera, 420v, ≥ 1280 wide. Lenses come in R6 |
-| 0x0040–0x0042 | CONTROL_SET, CONTROL_STATE, STATS | Reserved, defined in later runs |
+| 0x0040 | CONTROL_SET (R6) | JSON PC → phone: `{zoom: <device factor>, ramp: <powers of 2 per s, 0 = jump>}`. Focus/exposure/white balance join in R8 |
+| 0x0041 | CONTROL_STATE (R6) | JSON phone → PC when something changes (polled every 0.2 s): `{camera, zoom, lens}`. `lens` is the physical lens a virtual camera is using right now |
+| 0x0042 | STATS | Reserved |
+
+> **R6 CAPS** adds `defaultCamera` and `cameras: [{id, name, position, type, virtual, minZoom, maxZoom, zoomScale, defaultZoom, switchOver, formats}]`. Display zoom = device factor × `zoomScale`, so "1×" is always the main lens and the ultra wide is "0.5×". CONFIGURE adds optional `camera` (id) and `zoom` (device factor). The PC remembers zoom per camera and restores it after reconnects and format changes.
 
 > **R5 session start:** HELLO ⇄ HELLO, CAPS, 8 pings (clock), a **0.5 s PROBE (down)** to measure the link, then CONFIGURE from the negotiator (`windows/src/engine/negotiator.*`). The PC re-sends CONFIGURE when the consuming app changes format (debounced 0.7 s), and sends `{enabled:false}` when nobody is watching (no app on the camera, no preview). The phone then stops its camera. VIDEO's codec byte is 2 for HEVC.
 

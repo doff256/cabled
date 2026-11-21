@@ -34,7 +34,9 @@ One focused Claude Code session on one milestone, ending in a **buildable, teste
 | R1 | ✅ Done on iPhone Air: usbmux to loopback works, no Local Network prompt, 313 Mbit/s phone → PC, clean background/reconnect (after a companion fix). 17 Pro run optional | [runs/R1.md](runs/R1.md) |
 | R2 | ✅ Done. Virtual camera works in MF, DirectShow and Chromium apps (OBS confirmed by owner). D-09 settled, no DirectShow filter on 11 | [runs/R2.md](runs/R2.md) |
 | R3 | ✅ Both halves. iPhone Air rear camera → H.264 over USB → engine → Cabled Camera, live in OBS, "works well" per the owner (2026-11-21). **M1 reached** | [runs/R3.md](runs/R3.md) |
-| R4 | ✅ Windows side: resilient engine (reconnect, pause, watchdog, status cards in the camera), `cabled_core.dll`, first WinUI 3 app. Pending: DLL reinstall (UAC) and real-iPhone check | [runs/R4.md](runs/R4.md) |
+| R4 | ✅ Windows side: resilient engine (reconnect, pause, watchdog, status cards in the camera), `cabled_core.dll`, first WinUI 3 app | [runs/R4.md](runs/R4.md) |
+| R5 | ✅ Negotiation (CAPS, link probe, format/codec/bitrate), idle when nobody watches, HEVC, bitrate adaptation, 4K60/1440p/1080p120 formats. Tested on the iPhone Air | [runs/R5-R6.md](runs/R5-R6.md) |
+| R6 | Built: all cameras/lenses, zoom with ramps and presets, app lens/zoom controls. Waiting for the owner's test on build 5 | [runs/R5-R6.md](runs/R5-R6.md) |
 
 ### Phase 0: spikes (do these first; they can change the plan)
 | Run | Goal | Exit criteria | You do |

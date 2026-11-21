@@ -63,7 +63,7 @@ final class Connection {
         context.emit(.connected)
 
         guard send(.hello, json: context.hello) else { return }
-        _ = send(.caps, json: VideoPipeline.capabilities())
+        _ = send(.caps, json: CameraCatalog.capabilities())
         _ = send(.status, json: context.status())
         log("Companion ready (protocol \(WireProtocol.versionString))")
 
@@ -123,7 +123,15 @@ final class Connection {
             return "PC ended the session"
         case .error:
             log("PC error: \(message.text)")
-        case .pong, .log, .status, .configured, .video, .caps:
+        case .controlSet:
+            let request = WireCodec.parseJSON(message.payload) ?? [:]
+            if let zoom = request["zoom"] as? Double {
+                videoLock.lock()
+                let p = pipeline
+                videoLock.unlock()
+                p?.setZoom(zoom, rampRate: request["ramp"] as? Double ?? 0)
+            }
+        case .pong, .log, .status, .configured, .video, .caps, .controlState:
             break
         }
         return nil
@@ -145,6 +153,8 @@ final class Connection {
         if let fps = request["fps"] as? Double { settings.fps = fps }
         if let bitrate = request["bitrate"] as? Int { settings.bitrate = bitrate }
         settings.hevc = (request["codec"] as? String) == "hevc"
+        settings.cameraId = request["camera"] as? String
+        settings.zoom = request["zoom"] as? Double ?? 0
 
         let out = VideoOutQueue(send: { [weak self] bytes in self?.sendAll(bytes) ?? false },
                                 onStall: { [weak self] in
@@ -157,7 +167,8 @@ final class Connection {
         out.setCodec(hevc: settings.hevc)
         let pipeline = VideoPipeline(
             onEncoded: { avcc, keyframe, ptsNs in out.push(avcc: avcc, keyframe: keyframe, ptsNs: ptsNs) },
-            onStatus: { [weak self] status in self?.cameraStatusChanged(status) })
+            onStatus: { [weak self] status in self?.cameraStatusChanged(status) },
+            onControlState: { [weak self] state in self?.send(.controlState, json: state) })
         do {
             videoLock.lock()
             self.pipeline = pipeline

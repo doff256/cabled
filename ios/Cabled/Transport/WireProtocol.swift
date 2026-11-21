@@ -38,6 +38,8 @@ enum MessageType: UInt16 {
     case configured = 0x0022
     case video = 0x0030
     case keyframeRequest = 0x0031
+    case controlSet = 0x0040
+    case controlState = 0x0041
 }
 
 /// VIDEO payload (docs/transport-and-protocol.md): 16-byte little-endian header

@@ -236,12 +236,21 @@ void serveClient(net::Socket c, const Options& o) {
     if (!link.json(Type::Hello, hello)) return;
     if (o.sendCaps) {
         // Like an iPhone rear camera; the clip itself is always what's streamed.
-        link.json(Type::Caps, {{"camera", "back-wide"},
-                               {"codecs", {"h264", "hevc"}},
-                               {"formats",
-                                {{{"width", 1280}, {"height", 720}, {"minFps", 1}, {"maxFps", 60}},
-                                 {{"width", 1920}, {"height", 1080}, {"minFps", 1}, {"maxFps", 60}},
-                                 {{"width", 3840}, {"height", 2160}, {"minFps", 1}, {"maxFps", 60}}}}});
+        // Like an iPhone with a triple camera (R6 shape); the clip itself is always what's streamed.
+        const nlohmann::json formats = {{{"width", 1280}, {"height", 720}, {"minFps", 1}, {"maxFps", 60}},
+                                        {{"width", 1920}, {"height", 1080}, {"minFps", 1}, {"maxFps", 60}},
+                                        {{"width", 3840}, {"height", 2160}, {"minFps", 1}, {"maxFps", 60}}};
+        link.json(Type::Caps,
+                  {{"codecs", {"h264", "hevc"}},
+                   {"defaultCamera", "fake-triple"},
+                   {"formats", formats},
+                   {"cameras",
+                    {{{"id", "fake-triple"}, {"name", "Back Triple Camera"}, {"position", "back"},
+                      {"type", "triple"}, {"virtual", true}, {"minZoom", 1.0}, {"maxZoom", 30.0},
+                      {"zoomScale", 0.5}, {"defaultZoom", 2.0}, {"switchOver", {2.0, 6.0}}, {"formats", formats}},
+                     {{"id", "fake-front"}, {"name", "Front Camera"}, {"position", "front"}, {"type", "front"},
+                      {"virtual", false}, {"minZoom", 1.0}, {"maxZoom", 4.0}, {"zoomScale", 1.0},
+                      {"defaultZoom", 1.0}, {"formats", formats}}}}});
     }
     link.json(Type::Status, {{"thermal", "nominal"}, {"battery", 0.8}, {"charging", true}});
     link.text(Type::Log, "fake phone ready");
@@ -292,6 +301,12 @@ void serveClient(net::Socket c, const Options& o) {
                 sender = std::make_unique<VideoSender>(link, o.clip, fps, o, frozen);
                 sender->start();
                 log("video started at " + std::to_string(fps) + " fps");
+                break;
+            }
+            case Type::ControlSet: {
+                auto j = proto::parseJson(m).value_or(nlohmann::json::object());
+                if (o.onControlSet) o.onControlSet(j);
+                link.json(Type::ControlState, {{"camera", "fake-triple"}, {"zoom", j.value("zoom", 2.0)}, {"lens", "wide"}});
                 break;
             }
             case Type::KeyframeRequest:

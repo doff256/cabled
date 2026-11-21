@@ -100,6 +100,14 @@ void cabled_engine_set_preview_enabled(cabled_engine* e, int32_t enabled) {
     if (e) e->engine->setPreviewEnabled(enabled != 0);
 }
 
+void cabled_engine_set_camera(cabled_engine* e, const char* cameraId) {
+    if (e) e->engine->setCamera(cameraId ? cameraId : "");
+}
+
+void cabled_engine_set_zoom(cabled_engine* e, double zoom, int32_t smooth) {
+    if (e) e->engine->setZoom(zoom, smooth != 0);
+}
+
 int32_t cabled_engine_take_log(cabled_engine* e, char* buffer, int32_t capacity) {
     if (!e) return 0;
     std::lock_guard<std::mutex> lock(e->logMutex);

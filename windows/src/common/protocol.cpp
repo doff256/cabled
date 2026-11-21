@@ -24,6 +24,8 @@ std::string_view typeName(Type t) {
         case Type::Configured: return "CONFIGURED";
         case Type::Video: return "VIDEO";
         case Type::KeyframeRequest: return "KEYFRAME_REQUEST";
+        case Type::ControlSet: return "CONTROL_SET";
+        case Type::ControlState: return "CONTROL_STATE";
     }
     return "UNKNOWN";
 }

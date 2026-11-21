@@ -36,6 +36,11 @@ CABLED_API int32_t cabled_engine_copy_preview(cabled_engine* engine, uint8_t* bu
 
 CABLED_API void cabled_engine_set_preview_enabled(cabled_engine* engine, int32_t enabled);
 
+/* R6. camera_id from status "camera.list[].id" (NULL/"" = phone default). Zoom in display units
+ * ("1" = main lens, "0.5" = ultra wide); smooth = ramp instead of jump. */
+CABLED_API void cabled_engine_set_camera(cabled_engine* engine, const char* camera_id);
+CABLED_API void cabled_engine_set_zoom(cabled_engine* engine, double zoom, int32_t smooth);
+
 /* Engine log lines since the last call, newline-separated (same size contract as status_json). */
 CABLED_API int32_t cabled_engine_take_log(cabled_engine* engine, char* buffer, int32_t capacity);
 

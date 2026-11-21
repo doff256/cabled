@@ -329,6 +329,49 @@ TEST(Engine, TurnsVideoOffWhenNobodyWatches) {
     EXPECT_EQ(e.status().framesDecoded, 0u);
 }
 
+// R6: camera list in the status; setZoom converts display units to the phone's factor; setCamera
+// reconfigures at once.
+TEST(Engine, CamerasAndZoom) {
+    auto phoneOptions = phoneWithClip();
+    std::mutex m;
+    std::vector<nlohmann::json> configures, controls;
+    phoneOptions.onConfigure = [&](const nlohmann::json& j) {
+        std::lock_guard<std::mutex> lock(m);
+        configures.push_back(j);
+    };
+    phoneOptions.onControlSet = [&](const nlohmann::json& j) {
+        std::lock_guard<std::mutex> lock(m);
+        controls.push_back(j);
+    };
+    FakePhoneServer phone(phoneOptions);
+    Recorder rec;
+    engine::Engine e(configFor(phone, rec));
+    e.start();
+    std::this_thread::sleep_for(1500ms);
+
+    auto s = e.status();
+    ASSERT_EQ(s.cameras.size(), 2u);
+    EXPECT_EQ(s.cameras[0]["label"], "Auto");
+    EXPECT_EQ(s.camera, "fake-triple");
+
+    e.setZoom(3.0, true);  // 3x display on a 0.5-scale camera = factor 6
+    std::this_thread::sleep_for(300ms);
+    s = e.status();
+    EXPECT_DOUBLE_EQ(s.zoom, 3.0);  // echoed back through CONTROL_STATE
+
+    e.setCamera("fake-front");
+    std::this_thread::sleep_for(500ms);
+    e.stop();
+    std::lock_guard<std::mutex> lock(m);
+    ASSERT_FALSE(controls.empty());
+    EXPECT_DOUBLE_EQ(controls.back().value("zoom", 0.0), 6.0);
+    EXPECT_GT(controls.back().value("ramp", 0.0), 0.0);
+    // (The very last CONFIGURE is the {enabled:false} sent when the engine stops.)
+    bool switched = false;
+    for (const auto& c : configures) switched |= c.value("camera", "") == "fake-front";
+    EXPECT_TRUE(switched);
+}
+
 TEST(StatusCard, RendersReadableText) {
     const auto card = engine::renderStatusCard(1280, 720, L"Open Cabled on your iPhone", L"Keep it on screen.");
     ASSERT_EQ(card.bgra.size(), size_t(1280) * 720 * 4);

@@ -6,29 +6,97 @@
 
 namespace cabled::engine {
 
-PhoneCaps parseCaps(const nlohmann::json& j) {
-    PhoneCaps caps;
-    if (!j.is_object()) return caps;
-    for (const auto& f : j.value("formats", nlohmann::json::array())) {
+namespace {
+
+std::vector<CameraFormat> parseFormats(const nlohmann::json& list) {
+    std::vector<CameraFormat> out;
+    if (!list.is_array()) return out;
+    for (const auto& f : list) {
         CameraFormat c;
         c.width = f.value("width", 0u);
         c.height = f.value("height", 0u);
         c.minFps = f.value("minFps", 1.0);
         c.maxFps = f.value("maxFps", 30.0);
         c.binned = f.value("binned", false);
-        if (c.width && c.height) caps.formats.push_back(c);
+        if (c.width && c.height) out.push_back(c);
     }
+    return out;
+}
+
+}  // namespace
+
+std::string CameraInfo::label() const {
+    if (isVirtual) return "Auto";
+    if (type == "ultraWide") return "Ultra Wide";
+    if (type == "telephoto") return "Tele";
+    if (type == "front" || position == "front") return "Front";
+    return "Main";
+}
+
+std::vector<double> CameraInfo::presets() const {
+    std::vector<double> p;
+    auto add = [&](double display) {
+        display = std::round(display * 10) / 10;
+        if (display + 1e-6 < minDisplay() || display - 1e-6 > maxDisplay()) return;
+        for (double existing : p) {
+            if (std::abs(existing - display) < 0.05) return;
+        }
+        p.push_back(display);
+    };
+    add(minDisplay());
+    for (double s : switchOver) add(s * zoomScale);  // each lens's native view
+    add(1.0);
+    add(2.0);  // the classic "2×" crop of the main lens
+    std::sort(p.begin(), p.end());
+    return p;
+}
+
+const CameraInfo* PhoneCaps::find(const std::string& id) const {
+    for (const auto& c : cameras) {
+        if (c.id == id) return &c;
+    }
+    return nullptr;
+}
+
+PhoneCaps parseCaps(const nlohmann::json& j) {
+    PhoneCaps caps;
+    if (!j.is_object()) return caps;
+    caps.formats = parseFormats(j.value("formats", nlohmann::json::array()));
     for (const auto& codec : j.value("codecs", nlohmann::json::array())) {
         if (codec.is_string() && codec.get<std::string>() == "hevc") caps.hevc = true;
+    }
+    for (const auto& c : j.value("cameras", nlohmann::json::array())) {
+        CameraInfo info;
+        info.id = c.value("id", "");
+        info.name = c.value("name", "");
+        info.position = c.value("position", "back");
+        info.type = c.value("type", "wide");
+        info.isVirtual = c.value("virtual", false);
+        info.minZoom = c.value("minZoom", 1.0);
+        info.maxZoom = std::max(info.minZoom, c.value("maxZoom", 1.0));
+        info.zoomScale = c.value("zoomScale", 1.0);
+        info.defaultZoom = c.value("defaultZoom", info.minZoom);
+        for (const auto& s : c.value("switchOver", nlohmann::json::array())) {
+            if (s.is_number()) info.switchOver.push_back(s.get<double>());
+        }
+        info.formats = parseFormats(c.value("formats", nlohmann::json::array()));
+        if (!info.id.empty()) caps.cameras.push_back(std::move(info));
+    }
+    caps.defaultCamera = j.value("defaultCamera", caps.cameras.empty() ? "" : caps.cameras.front().id);
+    if (caps.formats.empty()) {
+        if (const CameraInfo* d = caps.find(caps.defaultCamera)) caps.formats = d->formats;
     }
     caps.known = !caps.formats.empty();
     return caps;
 }
 
-nlohmann::json Choice::toConfigure() const {
+nlohmann::json Choice::toConfigure(double zoomFactor) const {
     if (!enabled) return {{"enabled", false}};
-    return {{"enabled", true}, {"codec", codec}, {"width", width}, {"height", height},
-            {"fps", fps},      {"bitrate", bitrate}, {"keyframeInterval", 2.0}};
+    nlohmann::json j = {{"enabled", true}, {"codec", codec}, {"width", width}, {"height", height},
+                        {"fps", fps},      {"bitrate", bitrate}, {"keyframeInterval", 2.0}};
+    if (!camera.empty()) j["camera"] = camera;
+    if (zoomFactor > 0) j["zoom"] = zoomFactor;
+    return j;
 }
 
 std::string Choice::describe() const {
@@ -51,21 +119,28 @@ Choice negotiate(const PhoneCaps& caps, const Want& want, double linkMbps) {
     c.enabled = true;
     const double fps = want.fps > 0 ? want.fps : 30;
 
-    if (!caps.known) {  // old companion: the R3 fixed setup
+    // 0. Which camera: the user's choice if the phone has it, else the phone's default.
+    const CameraInfo* camera = caps.find(want.camera);
+    if (!camera) camera = caps.find(caps.defaultCamera);
+    if (camera) c.camera = camera->id;
+    const std::vector<CameraFormat>& formats =
+        camera && !camera->formats.empty() ? camera->formats : caps.formats;
+
+    if (!caps.known || formats.empty()) {  // old companion: the R3 fixed setup
         c.width = 1920;
         c.height = 1080;
         c.fps = 30;
     } else {
         // 1. Formats that can do the frame rate (never go below the app's fps if avoidable).
         std::vector<CameraFormat> usable;
-        for (const auto& f : caps.formats) {
+        for (const auto& f : formats) {
             if (f.maxFps + 0.01 >= fps && f.minFps - 0.01 <= fps) usable.push_back(f);
         }
         double chosenFps = fps;
         if (usable.empty()) {  // nothing that fast: take the fastest the phone has
             double best = 0;
-            for (const auto& f : caps.formats) best = std::max(best, f.maxFps);
-            for (const auto& f : caps.formats) {
+            for (const auto& f : formats) best = std::max(best, f.maxFps);
+            for (const auto& f : formats) {
                 if (f.maxFps >= best - 0.01) usable.push_back(f);
             }
             chosenFps = best;

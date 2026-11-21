@@ -76,6 +76,48 @@ TEST(Negotiator, UnknownCapsFallsBackToTheR3Setup) {
     EXPECT_DOUBLE_EQ(c.fps, 30);
 }
 
+namespace {
+
+PhoneCaps tripleCaps() {
+    const nlohmann::json wide = {{{"width", 1920}, {"height", 1080}, {"maxFps", 60}},
+                                 {{"width", 3840}, {"height", 2160}, {"maxFps", 60}}};
+    const nlohmann::json front = {{{"width", 1920}, {"height", 1080}, {"maxFps", 30}}};
+    return parseCaps({{"codecs", {"h264"}},
+                      {"defaultCamera", "triple"},
+                      {"cameras",
+                       {{{"id", "triple"}, {"type", "triple"}, {"virtual", true}, {"minZoom", 1}, {"maxZoom", 30},
+                         {"zoomScale", 0.5}, {"switchOver", {2, 6}}, {"formats", wide}},
+                        {{"id", "front"}, {"type", "front"}, {"position", "front"}, {"formats", front}}}}});
+}
+
+}  // namespace
+
+TEST(Negotiator, UsesTheChosenCamerasFormats) {
+    const PhoneCaps caps = tripleCaps();
+    Want w = app(1920, 1080, 60);
+    EXPECT_EQ(negotiate(caps, w, 300).camera, "triple");  // default
+    w.camera = "front";
+    const Choice c = negotiate(caps, w, 300);
+    EXPECT_EQ(c.camera, "front");
+    EXPECT_DOUBLE_EQ(c.fps, 30);  // the front camera tops out at 30
+    w.camera = "nonexistent";
+    EXPECT_EQ(negotiate(caps, w, 300).camera, "triple");
+    EXPECT_EQ(c.toConfigure(1.5)["camera"], "front");
+    EXPECT_EQ(c.toConfigure(1.5)["zoom"], 1.5);
+}
+
+TEST(Negotiator, CameraLabelsAndZoomPresets) {
+    const PhoneCaps caps = tripleCaps();
+    const CameraInfo* triple = caps.find("triple");
+    ASSERT_TRUE(triple);
+    EXPECT_EQ(triple->label(), "Auto");
+    EXPECT_DOUBLE_EQ(triple->minDisplay(), 0.5);
+    EXPECT_DOUBLE_EQ(triple->maxDisplay(), 15);
+    EXPECT_EQ(triple->presets(), (std::vector<double>{0.5, 1, 2, 3}));
+    EXPECT_EQ(caps.find("front")->label(), "Front");
+    EXPECT_EQ(caps.find("front")->presets(), (std::vector<double>{1}));
+}
+
 TEST(Negotiator, BitrateTable) {
     EXPECT_NEAR(defaultBitrate(1920, 1080, 30) / 1e6, 25, 0.5);
     EXPECT_NEAR(defaultBitrate(1280, 720, 30) / 1e6, 15, 2);

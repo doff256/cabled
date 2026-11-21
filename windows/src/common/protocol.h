@@ -40,7 +40,9 @@ enum class Type : uint16_t {
     Configured = 0x0022,       // phone -> PC, JSON
     Video = 0x0030,            // phone -> PC, binary (video.h)
     KeyframeRequest = 0x0031,  // PC -> phone, empty
-    // Reserved for later runs: ControlSet 0x0040, ControlState 0x0041, Stats 0x0042.
+    ControlSet = 0x0040,       // PC -> phone, JSON (R6: zoom)
+    ControlState = 0x0041,     // phone -> PC, JSON (R6: camera, zoom, active lens)
+    // Reserved for later runs: Stats 0x0042.
 };
 
 std::string_view typeName(Type t);

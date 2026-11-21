@@ -18,6 +18,13 @@ public sealed partial class MainWindow : Window
     private byte[] _frame = new byte[960 * 540 * 4];
     private ulong _frameSeq;
     private string _state = "";
+    // Lens + zoom (R6)
+    private string _camerasJson = "";
+    private string _currentCamera = "";
+    private double _zoomMin = 1, _zoomMax = 1;
+    private bool _settingSlider;
+    private DateTime _userZoomedAt = DateTime.MinValue;
+    private DateTime _lastZoomSent = DateTime.MinValue;
 
     public MainWindow(string? tcpTarget)
     {
@@ -41,6 +48,18 @@ public sealed partial class MainWindow : Window
         _statusTimer.Interval = TimeSpan.FromMilliseconds(250);
         _statusTimer.Tick += (_, _) => UpdateStatus();
         _statusTimer.Start();
+
+        ZoomSlider.ValueChanged += (_, e) =>
+        {
+            if (_settingSlider) return;
+            _userZoomedAt = DateTime.UtcNow;
+            double zoom = SliderToZoom(e.NewValue);
+            ZoomText.Text = $"{zoom:0.0}×";
+            if (DateTime.UtcNow - _lastZoomSent < TimeSpan.FromMilliseconds(40)) return;  // ~25 updates/s
+            _lastZoomSent = DateTime.UtcNow;
+            _engine.SetZoom(zoom, smooth: false);
+        };
+        ZoomSlider.PointerCaptureLost += (_, _) => _engine.SetZoom(SliderToZoom(ZoomSlider.Value), smooth: false);
 
         // Save work while minimised: no preview conversion when nobody can see it.
         AppWindow.Changed += (_, e) =>
@@ -109,6 +128,8 @@ public sealed partial class MainWindow : Window
             ? "in use · " + vcam.GetProperty("state").GetString()
             : "not in use");
 
+        UpdateCameraControls(s.GetProperty("camera"), live || state == "idle");
+
         if (state != _state)
         {
             _state = state;
@@ -116,5 +137,86 @@ public sealed partial class MainWindow : Window
             PreviewHint.Visibility = state == "streaming" ? Visibility.Collapsed : Visibility.Visible;
             PreviewHint.Text = _bitmap is null ? "No video yet" : "";
         }
+    }
+
+    // ---- Lens + zoom (R6) ----
+
+    // The slider is logarithmic so 0.5× to 15× feels even: each step multiplies the zoom.
+    private double SliderToZoom(double v) =>
+        Math.Exp(Math.Log(_zoomMin) + (Math.Log(_zoomMax) - Math.Log(_zoomMin)) * v / ZoomSlider.Maximum);
+
+    private double ZoomToSlider(double zoom) =>
+        _zoomMax <= _zoomMin ? 0 :
+        (Math.Log(Math.Clamp(zoom, _zoomMin, _zoomMax)) - Math.Log(_zoomMin)) /
+        (Math.Log(_zoomMax) - Math.Log(_zoomMin)) * ZoomSlider.Maximum;
+
+    private void UpdateCameraControls(JsonElement camera, bool connected)
+    {
+        var list = camera.GetProperty("list");
+        CameraControls.Visibility = connected && list.GetArrayLength() > 0 ? Visibility.Visible : Visibility.Collapsed;
+        if (CameraControls.Visibility != Visibility.Visible) return;
+
+        string current = camera.GetProperty("current").GetString() ?? "";
+        string listJson = list.GetRawText();
+        if (listJson != _camerasJson || current != _currentCamera)
+        {
+            _camerasJson = listJson;
+            _currentCamera = current;
+            LensPanel.Children.Clear();
+            foreach (var c in list.EnumerateArray())
+            {
+                string id = c.GetProperty("id").GetString() ?? "";
+                var button = new Microsoft.UI.Xaml.Controls.Primitives.ToggleButton
+                {
+                    Content = c.GetProperty("label").GetString(),
+                    IsChecked = id == current,
+                    Tag = id,
+                };
+                Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(button, c.GetProperty("name").GetString());
+                button.Click += (_, _) =>
+                {
+                    _engine.SetCamera(id);
+                    foreach (var child in LensPanel.Children)
+                        if (child is Microsoft.UI.Xaml.Controls.Primitives.ToggleButton t) t.IsChecked = (string)t.Tag == id;
+                };
+                LensPanel.Children.Add(button);
+
+                if (id != current) continue;
+                _zoomMin = Math.Max(0.1, c.GetProperty("minZoom").GetDouble());
+                _zoomMax = Math.Max(_zoomMin, c.GetProperty("maxZoom").GetDouble());
+                ZoomRow.Visibility = _zoomMax > _zoomMin * 1.01 ? Visibility.Visible : Visibility.Collapsed;
+                PresetPanel.Children.Clear();
+                foreach (var p in c.GetProperty("presets").EnumerateArray())
+                {
+                    double preset = p.GetDouble();
+                    var b = new Microsoft.UI.Xaml.Controls.Button { Content = $"{preset:0.#}×", Padding = new Thickness(8, 2, 8, 2) };
+                    b.Click += (_, _) =>
+                    {
+                        _userZoomedAt = DateTime.UtcNow;
+                        _engine.SetZoom(preset, smooth: true);
+                    };
+                    PresetPanel.Children.Add(b);
+                }
+            }
+        }
+
+        // Follow the phone's zoom (ramps, reconnects) unless the user is dragging right now.
+        double zoom = camera.GetProperty("zoom").GetDouble();
+        if (DateTime.UtcNow - _userZoomedAt > TimeSpan.FromSeconds(1))
+        {
+            _settingSlider = true;
+            ZoomSlider.Value = ZoomToSlider(zoom);
+            _settingSlider = false;
+            ZoomText.Text = $"{zoom:0.0}×";
+        }
+        string lens = camera.GetProperty("lens").GetString() ?? "";
+        LensText.Text = lens switch
+        {
+            "ultraWide" => "Ultra wide lens",
+            "telephoto" => "Telephoto lens",
+            "front" => "Front camera",
+            "" => "",
+            _ => "Main lens",
+        };
     }
 }
