@@ -10,6 +10,15 @@ This is the hardest Windows piece. The DLL runs inside processes we don't own. B
 | **DirectShow source filter** (COM DLL, x64 + x86) | ✅ | ✅ | DirectShow apps (Zoom, OBS, Chromium, Discord, Skype…). **Not** apps that only use MF (Windows Camera app, some WinRT apps) | ✅ **Fallback for Windows 10** |
 | Kernel AVStream driver | ✅ | ✅ | everyone | ❌ needs EV certificate + Microsoft attestation signing |
 
+## Settled by spike R2 (2026-11-21, details in [runs/R2.md](runs/R2.md))
+- **It works:** an unsigned media source in Frame Server delivers 1080p30/60 and 4K30 to Media Foundation apps, Chromium and DirectShow apps. Engine → app adds about 0.5 ms at 1080p and 2.3 ms at 4K.
+- **IPC (D-09):** a single `Global\` section + event, created by the media source (Frame Server has the privilege) and opened by the engine. **No named pipe, no broker service.** The section exists only while an app has the camera, so the engine also knows when to wake the phone.
+- **DirectShow on Windows 11 comes free** through Frame Server's bridge, which also adds YUY2 variants. No DirectShow filter needed on 11.
+- **Admin:** only for COM registration in HKLM and installing the DLL somewhere LOCAL SERVICE can read. Creating the camera (`MFCreateVirtualCamera`, System lifetime, CurrentUser) needs no admin.
+- Windows shows the device as **"Cabled Camera (Windows Virtual Camera)"**.
+- **Colour:** Media Foundation consumers (Chromium) honour our BT.709 tags. DirectShow consumers get no matrix, and FFmpeg falls back to BT.601. → R12.
+- With no constraints, Chromium opens **640×480**. → R5 decides the advertised list.
+
 ## Windows 11: Media Foundation virtual camera
 
 ### How it works
@@ -26,7 +35,7 @@ Formats: **NV12** (main), **YUY2** (older apps), **RGB32** (rare apps). Sizes ×
 
 Apps tend to pick the first or "best" type in the list, so **order matters**. 1080p30 NV12 comes first as the safe default that works everywhere, and the rest follow. When we tune output formats against real apps, we decide whether 1080p60 can go first without breaking anything.
 
-### IPC between the engine and the Frame Server process (spike R2 decides this)
+### IPC between the engine and the Frame Server process (R2: simplified, see "Settled by spike R2" above; the pipe below turned out unnecessary)
 The problem: the engine runs in the user's session without privileges. The DLL runs in session 0 as LOCAL SERVICE. `Local\` names don't cross sessions, and creating `Global\` objects needs `SeCreateGlobalPrivilege`, which normal user processes don't have.
 
 **Proposed design:**

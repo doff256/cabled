@@ -32,6 +32,7 @@ One focused Claude Code session on one milestone, ending in a **buildable, teste
 | Run | Status | Page |
 |-----|--------|------|
 | R1 | Built and tested on the Windows side. Waiting for the device test | [runs/R1.md](runs/R1.md) |
+| R2 | ✅ Done. Virtual camera works in MF, DirectShow and Chromium apps. D-09 settled, no DirectShow filter on 11. Optional visual check in Teams/Zoom/Discord/OBS is yours | [runs/R2.md](runs/R2.md) |
 
 ### Phase 0: spikes (do these first; they can change the plan)
 | Run | Goal | Exit criteria | You do |
@@ -90,7 +91,7 @@ One focused Claude Code session on one milestone, ending in a **buildable, teste
 ## Top risks
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|-----------|
-| Frame Server IPC / MF camera quirks | Medium | High | Spike R2 first, broker-service fallback |
+| Frame Server IPC / MF camera quirks | ~~Medium~~ **Low** after R2 | High | R2 proved the IPC and app coverage. What's left is per-app quirks (format choice, colour) in R5/R12 |
 | An iOS update breaks SideStore or free signing | Low–Medium | High (outside our control) | Support both AltStore and SideStore. A Mac with Xcode is the last resort |
 | usbmux throughput on Lightning limits 4K60 | Medium | Low | HEVC + negotiation steps down automatically |
 | Phone thermals in long 4K sessions | High | Medium | Thermal step-down, dim mode, defaults sized sensibly |

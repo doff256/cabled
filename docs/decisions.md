@@ -10,9 +10,9 @@ Status key: **Forced** = the constraints leave no real alternative · **Technica
 | D-04 | H.264 by default, HEVC automatic/optional; high bitrate, no B-frames | Technical |
 | D-05 | Decode with FFmpeg D3D11VA (LGPL, dynamic) | Technical |
 | D-06 | Direct3D 11 for all GPU work | Technical |
-| D-07 | Virtual camera: MF on Windows 11 for 1.0; DirectShow for Windows 10 after 1.0 | Accepted (Q6) |
+| D-07 | Virtual camera: MF on Windows 11 for 1.0 (R2: also covers DirectShow apps through Frame Server's bridge); DirectShow filter only for Windows 10, after 1.0 | Accepted (Q6), confirmed R2 |
 | D-08 | Persistent virtual camera with a placeholder when idle | Accepted (Q10) |
-| D-09 | Engine ↔ virtual camera IPC: named pipe + shared memory ring, CPU copy | Spike R2 |
+| D-09 | Engine ↔ virtual camera IPC: one `Global\` shared-memory ring + event created by the media source, opened by the engine, CPU copy | Settled R2 |
 | D-10 | Face detection on the phone, framing logic on Windows | Technical |
 | D-11 | Pan/crop on Windows, optical/digital zoom on the phone | Technical |
 | D-12 | SDR only in v1 | Accepted (Q13) |
@@ -68,8 +68,10 @@ Status key: **Forced** = the constraints leave no real alternative · **Technica
 - **Why:** apps list their cameras when they start. If ours only existed while Cabled was running, users would have to restart Zoom to see it. Persistent with a placeholder is what OBS and others do.
 - **Trade-off:** "Cabled Camera" always appears in camera lists.
 
-### D-09 IPC (spike)
-- **Proposal:** a named pipe for control (the engine creates it, granting LOCAL SERVICE access) and a Global\ shared-memory ring created by the Frame Server side. Fallback is a broker service. See virtual-camera.md.
+### D-09 IPC (settled in R2)
+- **Decision:** the media source (inside Frame Server, which holds SeCreateGlobalPrivilege) creates `Global\CabledVCam.v1` (a 3-slot frame ring with a header) and `Global\CabledVCam.v1.Frame` (an auto-reset event). The DACL grants interactive users read/write. The engine opens both by name, publishes frames, and reads back the format the app chose. The header carries both directions, so no pipe is needed.
+- **Why:** it's the simplest design that works across the session 0 boundary without privileges on the user side. It was measured at 0.5 ms (1080p) and 2.3 ms (4K) from engine to app.
+- **Bonus:** the section only exists while an app has the camera open, which tells the engine when to start or stop the phone.
 
 ### D-10 / D-11 Split of framing and zoom work
 - **Why:** the camera hardware's face detection is effectively free and good, so the phone stays light. Framing policy and tuning live with the UI and are testable without a phone. Zoom done in the ISP is better quality than cropping after encode. Panning is impossible on iOS (zoom is always centred), so panning has to be a crop on Windows.

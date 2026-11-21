@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cabled webcam test</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 14px/1.4 system-ui, sans-serif; margin: 16px; background: #111; color: #eee; }
+  video, canvas { max-width: 640px; width: 100%; background: #000; display: block; margin: 8px 0; }
+  pre { white-space: pre-wrap; background: #1c1c1c; padding: 8px; }
+</style>
+</head>
+<body>
+<h1>Cabled webcam test</h1>
+<p>Opens the first camera whose name contains "Cabled" at several sizes and measures frame rate, repeats and
+colours from the test pattern. Results are also POSTed to <code>http://127.0.0.1:47901/result</code> if a
+listener is running (the R2 test harness).</p>
+<video id="video" muted playsinline></video>
+<canvas id="canvas"></canvas>
+<pre id="log"></pre>
+<script>
+const logEl = document.getElementById('log');
+const log = (s) => { logEl.textContent += s + '\n'; };
+const video = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+function decodeFrameNumber(img, w) {
+  const bw = Math.max(4, Math.floor(w / 80) & ~1);
+  const bh = Math.max(8, bw);
+  const y = bh + Math.floor(bh / 2);
+  let value = 0;
+  for (let i = 0; i < 32; i++) {
+    const x = i * bw + Math.floor(bw / 2);
+    const g = img.data[(y * w + x) * 4 + 1];
+    if (g > 128) value += 2 ** i;
+  }
+  return value;
+}
+
+function barColour(img, w, h, index) {
+  const x = Math.floor((index + 0.5) * w / 8), y = Math.floor(h * 0.85);
+  const o = (y * w + x) * 4;
+  return [img.data[o], img.data[o + 1], img.data[o + 2]];
+}
+
+async function measure(deviceId, label, constraints, seconds) {
+  const stream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: deviceId }, ...constraints } });
+  const track = stream.getVideoTracks()[0];
+  const settings = track.getSettings();
+  video.srcObject = stream;
+  await video.play();
+  const w = video.videoWidth, h = video.videoHeight;
+  canvas.width = w; canvas.height = h;
+  let frames = 0, unique = 0, repeats = 0, placeholder = 0, last = -1, firstT = 0, lastT = 0;
+  let colours = null;
+  await new Promise((resolve) => {
+    const start = performance.now();
+    const onFrame = (now) => {
+      if (!firstT) firstT = now;
+      lastT = now;
+      frames++;
+      ctx.drawImage(video, 0, 0, w, h);
+      const img = ctx.getImageData(0, 0, w, h);
+      const n = decodeFrameNumber(img, w);
+      if (n === 0) placeholder++;
+      else if (n === last) repeats++;
+      else unique++;
+      last = n;
+      if (!colours && n !== 0) colours = { gray: barColour(img, w, h, 0), green: barColour(img, w, h, 3), red: barColour(img, w, h, 5) };
+      if (now - start > seconds * 1000) resolve(); else video.requestVideoFrameCallback(onFrame);
+    };
+    video.requestVideoFrameCallback(onFrame);
+  });
+  track.stop();
+  const fps = frames > 1 ? (frames - 1) / ((lastT - firstT) / 1000) : 0;
+  const r = { label, requested: constraints, settings: { width: settings.width, height: settings.height, frameRate: settings.frameRate },
+              videoSize: [w, h], frames, fps: Math.round(fps * 10) / 10, unique, repeats, placeholder, colours };
+  log(JSON.stringify(r));
+  return r;
+}
+
+(async () => {
+  const report = { userAgent: navigator.userAgent, results: [], devices: [] };
+  try {
+    const probe = await navigator.mediaDevices.getUserMedia({ video: true });
+    probe.getTracks().forEach((t) => t.stop());
+    const devices = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput');
+    report.devices = devices.map((d) => d.label);
+    log('Cameras: ' + report.devices.join(' | '));
+    const cam = devices.find((d) => d.label.includes('Cabled'));
+    if (!cam) throw new Error('No Cabled camera visible to the browser');
+    const runs = [
+      ['default', {}],
+      ['720p30', { width: { exact: 1280 }, height: { exact: 720 }, frameRate: { ideal: 30 } }],
+      ['1080p30', { width: { exact: 1920 }, height: { exact: 1080 }, frameRate: { ideal: 30 } }],
+      ['1080p60', { width: { exact: 1920 }, height: { exact: 1080 }, frameRate: { exact: 60 } }],
+      ['4K30', { width: { exact: 3840 }, height: { exact: 2160 } }],
+    ];
+    for (const [label, c] of runs) {
+      try { report.results.push(await measure(cam.deviceId, label, c, 3)); }
+      catch (e) { report.results.push({ label, error: String(e) }); log(label + ': ' + e); }
+    }
+  } catch (e) {
+    report.error = String(e);
+    log('ERROR: ' + e);
+  }
+  document.title = 'DONE';
+  try { await fetch('http://127.0.0.1:47901/result', { method: 'POST', body: JSON.stringify(report) }); } catch (e) {}
+})();
+</script>
+</body>
+</html>
