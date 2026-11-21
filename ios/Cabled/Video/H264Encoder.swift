@@ -32,10 +32,10 @@ final class H264Encoder {
         if status == noErr {
             lowLatencyRateControl = true
         } else {
-            // Fall back to the normal hardware encoder (still real time, no reordering).
-            let hardware = [kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder as String: true] as CFDictionary
+            // Fall back to the default encoder (hardware on every iPhone; still real time, no reordering).
+            // RequireHardwareAcceleratedVideoEncoder would need iOS 17.4; our minimum is 17.0.
             status = VTCompressionSessionCreate(allocator: kCFAllocatorDefault, width: width, height: height,
-                                                codecType: kCMVideoCodecType_H264, encoderSpecification: hardware,
+                                                codecType: kCMVideoCodecType_H264, encoderSpecification: nil,
                                                 imageBufferAttributes: nil, compressedDataAllocator: nil,
                                                 outputCallback: nil, refcon: nil, compressionSessionOut: &created)
         }
