@@ -11,7 +11,7 @@ Complexity scale: 1 = routine · 3 = real engineering · 5 = hard, high risk of 
 | usbmux client + device detection | 2 | Small protocol with known gotchas. Risk sits in AMDS behaviour (trust, Listen), which spike R1 settles |
 | Wire protocol | 2 | Our own design, simple framing |
 | iPhone capture + encode + send | 3 | Standard AVFoundation/VideoToolbox, but tuning for low latency and iOS lifecycle edge cases |
-| iPhone dev loop | 3 | The owner has a Mac (Xcode, debugger), so this was cut from 4. Still left: the phone can only be cabled to one computer at a time, the free account's 7-day/3-app/10-ID limits, tests done by hand |
+| iPhone dev loop | 4 | Back to 4 (2026-11-21): the owner's Mac can't run a current Xcode, so every iPhone build is CI (~9 min) → SideStore install → test by hand, with no debugger. Mitigations: careful Swift, simulator unit tests in CI, LOG streaming to the PC, batching iPhone changes |
 | Decode (FFmpeg D3D11VA) | 3 | Well-trodden, but zero-copy setup and device-loss handling take care |
 | GPU pipeline (crop/scale/colour/convert/readback) | 3 | Shaders are simple. Correct colour handling and stall-free readback are the work |
 | **MF virtual camera (Windows 11)** | **5** | COM source inside Frame Server (session 0, LOCAL SERVICE), cross-session IPC, opaque failures, per-app quirks |
@@ -83,7 +83,7 @@ One focused Claude Code session on one milestone, ending in a **buildable, teste
 - **Realistic range: 11–17.**
   - +1–2 if spike R2 needs the broker-service fallback for IPC.
   - +1–3 for auto-framing feel and per-app quirks, which tend to need extra rounds.
-  - −1 possible because the Mac speeds up the iPhone side (R1/R3 may merge).
+  - +1 likely: no usable Mac (2026-11-21), so iPhone-side bugs cost a CI + sideload round trip each.
 - **After 1.0:** +1 run for Windows 10 (R10), +1 for a later Windows 10 matrix pass.
 - **Where runs happen:** iPhone-heavy work (the companion parts of R1, R3, R5, R6, R8) works best as Claude Code sessions on your Mac. Everything else happens on this PC. Some runs touch both sides and can be split into a Mac half and a PC half.
 - **Your time:** roughly 30–60 min of device testing after each iPhone-touching run (R1, R3–R8, R11–R13), and a longer session (2–3 h) for the matrix and soak in Phase 4.

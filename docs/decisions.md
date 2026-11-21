@@ -18,7 +18,7 @@ Status key: **Forced** = the constraints leave no real alternative · **Technica
 | D-12 | SDR only in v1 | Accepted (Q13) |
 | D-13 | Brightness, contrast, saturation and sharpness on Windows; neutral = skipped | Forced (iOS has no such controls) |
 | D-14 | iPhone app: Swift/SwiftUI, no deps, no extensions, iOS 17+ | Accepted (Q11, owner deferred to Claude) |
-| D-15 | iPhone dev in Xcode on the owner's Mac; releases built in public-repo CI as an unsigned IPA; distribution through SideStore/AltStore source | Accepted (Q1, Q2) |
+| D-15 | iPhone app built **only in public-repo CI** as an unsigned IPA (the owner's Mac can't run a current Xcode); installed on test phones and by users through SideStore/AltStore. Swift is written from the Windows PC, and debugging goes through LOG messages streamed to the PC | Accepted (Q1 revised 2026-11-21, Q2) |
 | D-16 | Windows: C++20 engine + C# WinUI 3 UI | Accepted (Q15) |
 | D-17 | Inno Setup installer, admin once | Technical |
 | D-18 | No network calls except localhost | Technical |

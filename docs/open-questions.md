@@ -6,7 +6,7 @@
 
 | # | Question | Answer | Affects |
 |---|----------|--------|---------|
-| Q1 | Mac available? | **Yes.** Xcode for iPhone dev and debugging, CI for release IPAs | D-15 |
+| Q1 | Mac available? | ~~Yes~~ → **Not usable for iOS dev (2026-11-21):** a 2020 Intel MacBook on Sonoma can only run Xcode ≤ 16.2, too old for iOS 26 devices, and the owner won't upgrade it. **All iPhone builds come from CI**, installed with SideStore | D-15 |
 | Q2 | Repo visibility, GitHub CLI use | **Public** on GitHub. Claude may use `gh` with the owner's account (owner runs `gh auth login` once) to create the repo, push and manage CI | D-15 |
 | Q3 | Test iPhones | **iPhone Air** + access to an **iPhone 17 Pro** (see notes below) | testing |
 | Q4 | Apple Devices / iTunes as a prerequisite | **Accepted.** There's no driver-free alternative | D-01 |
