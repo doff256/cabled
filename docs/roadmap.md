@@ -93,7 +93,7 @@ One focused Claude Code session on one milestone, ending in a **buildable, teste
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|-----------|
 | Frame Server IPC / MF camera quirks | ~~Medium~~ **Low** after R2 | High | R2 proved the IPC and app coverage. What's left is per-app quirks (format choice, colour) in R5/R12 |
-| An iOS update breaks SideStore or free signing | Low–Medium | High (outside our control) | Support both AltStore and SideStore. A Mac with Xcode is the last resort |
+| An Apple change breaks SideStore or free signing | ~~Low–Medium~~ **Happened 2026-11-20** (SideStore sign-in HTTP 503) | High (outside our control) | Support both AltStore and SideStore, and wait for upstream fixes. A Mac with current Xcode is the last resort (the owner's isn't one). Windows-side runs continue meanwhile |
 | usbmux throughput on Lightning limits 4K60 | Medium | Low | HEVC + negotiation steps down automatically |
 | Phone thermals in long 4K sessions | High | Medium | Thermal step-down, dim mode, defaults sized sensibly |
 | Apps mishandle colour tags | Medium | Low–Medium | Test bars per app, compatibility option |
