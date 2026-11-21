@@ -26,10 +26,12 @@ std::vector<CameraFormat> parseFormats(const nlohmann::json& list) {
 }  // namespace
 
 std::string CameraInfo::label() const {
+    // Front first: the TrueDepth front camera reports itself as a virtual device (colour + IR),
+    // which once made the iPhone Air show "Auto" for its selfie camera.
+    if (type == "front" || position == "front") return "Front";
     if (isVirtual) return "Auto";
     if (type == "ultraWide") return "Ultra Wide";
     if (type == "telephoto") return "Tele";
-    if (type == "front" || position == "front") return "Front";
     return "Main";
 }
 

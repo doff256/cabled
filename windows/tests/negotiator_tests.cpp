@@ -115,6 +115,10 @@ TEST(Negotiator, CameraLabelsAndZoomPresets) {
     EXPECT_DOUBLE_EQ(triple->maxDisplay(), 15);
     EXPECT_EQ(triple->presets(), (std::vector<double>{0.5, 1, 2, 3}));
     EXPECT_EQ(caps.find("front")->label(), "Front");
+    // TrueDepth front cameras are "virtual" too; they must still read "Front".
+    const PhoneCaps trueDepth = parseCaps(
+        {{"cameras", {{{"id", "td"}, {"type", "front"}, {"position", "front"}, {"virtual", true}}}}});
+    EXPECT_EQ(trueDepth.find("td")->label(), "Front");
     EXPECT_EQ(caps.find("front")->presets(), (std::vector<double>{1}));
 }
 
