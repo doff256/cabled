@@ -112,6 +112,14 @@ final class WireProtocolTests: XCTestCase {
         }
     }
 
+    /// Build 7 crashed converting out-of-range live gains; they're clamped first now.
+    func testWhiteBalanceGainsAreClamped() {
+        let g = VideoPipeline.clampedGains(.init(redGain: 0.5, greenGain: .nan, blueGain: 9), max: 4)
+        XCTAssertEqual(g.redGain, 1)
+        XCTAssertEqual(g.greenGain, 1)
+        XCTAssertEqual(g.blueGain, 4)
+    }
+
     func testPingPong() {
         var ping = [UInt8](repeating: 0, count: 8)
         WireCodec.writeLE64(&ping, at: 0, 123_456_789)

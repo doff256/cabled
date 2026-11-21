@@ -281,7 +281,9 @@ final class VideoPipeline: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         let shutter = seconds(d.exposureDuration)
         let frame = seconds(d.activeVideoMaxFrameDuration)
         let maxShutter = frame > 0 ? min(seconds(format.maxExposureDuration), frame) : seconds(format.maxExposureDuration)
-        let wb = d.temperatureAndTintValues(for: d.deviceWhiteBalanceGains)
+        // temperatureAndTintValues(for:) raises an Objective-C exception (crash) if any gain is
+        // outside 1...maxWhiteBalanceGain, and the live gains can be, e.g. right after a switch.
+        let wb = d.temperatureAndTintValues(for: Self.clampedGains(d.deviceWhiteBalanceGains, max: d.maxWhiteBalanceGain))
         return [
             "camera": d.uniqueID,
             "zoom": r(Double(d.videoZoomFactor)),
@@ -372,16 +374,19 @@ final class VideoPipeline: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                     guard device.isWhiteBalanceModeSupported(.locked) else { break }
                     let values = AVCaptureDevice.WhiteBalanceTemperatureAndTintValues(
                         temperature: Float(wb["temperature"] as? Double ?? 5000), tint: Float(wb["tint"] as? Double ?? 0))
-                    var gains = device.deviceWhiteBalanceGains(for: values)
-                    let maxGain = device.maxWhiteBalanceGain
-                    gains.redGain = min(max(gains.redGain, 1), maxGain)
-                    gains.greenGain = min(max(gains.greenGain, 1), maxGain)
-                    gains.blueGain = min(max(gains.blueGain, 1), maxGain)
+                    let gains = Self.clampedGains(device.deviceWhiteBalanceGains(for: values),
+                                                  max: device.maxWhiteBalanceGain)
                     device.setWhiteBalanceModeLocked(with: gains, completionHandler: nil)
                 default: break
                 }
             }
         }
+    }
+
+    /// White balance gains AVFoundation accepts: each in 1...maxGain, never NaN.
+    static func clampedGains(_ g: AVCaptureDevice.WhiteBalanceGains, max maxGain: Float) -> AVCaptureDevice.WhiteBalanceGains {
+        func c(_ v: Float) -> Float { v.isFinite ? Swift.min(Swift.max(v, 1), maxGain) : 1 }
+        return AVCaptureDevice.WhiteBalanceGains(redGain: c(g.redGain), greenGain: c(g.greenGain), blueGain: c(g.blueGain))
     }
 
     /// Inverse of rotate(): a point in the sent frame -> sensor (point-of-interest) coordinates.
