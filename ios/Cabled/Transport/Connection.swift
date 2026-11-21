@@ -6,6 +6,11 @@ final class Connection {
     private let fd: Int32
     private let context: ConnectionContext
     private var pingCount = 0
+    // Guards `fd` against reuse: once this connection has closed its socket, the number may belong
+    // to the next connection, so close() must not touch it any more (R1 field bug: the next PC
+    // connection was shut down the instant it arrived).
+    private let fdLock = NSLock()
+    private var fdClosed = false
 
     // State of a PC -> phone ("up") probe while it runs.
     private var upActive = false
@@ -31,8 +36,11 @@ final class Connection {
     }
 
     /// Wakes the blocked read; the connection thread then closes the socket itself.
+    /// Does nothing if this connection already ended.
     func close() {
-        shutdown(fd, SHUT_RDWR)
+        fdLock.lock()
+        defer { fdLock.unlock() }
+        if !fdClosed { shutdown(fd, SHUT_RDWR) }
     }
 
     // MARK: Session
@@ -40,7 +48,10 @@ final class Connection {
     private func run() {
         var reason = "PC disconnected"
         defer {
+            fdLock.lock()
+            fdClosed = true
             Darwin.close(fd)
+            fdLock.unlock()
             context.emit(.disconnected(reason: reason))
         }
         context.emit(.connected)

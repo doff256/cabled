@@ -1,0 +1,40 @@
+{
+  "clockOffsetNs": 0,
+  "down": {
+    "bytes": 0,
+    "chunks": 0,
+    "corruptChunks": 0,
+    "error": "",
+    "mbps": 0.0,
+    "ok": false,
+    "outOfOrderChunks": 0,
+    "peerMbps": 0.0,
+    "ran": false,
+    "seconds": 0.0
+  },
+  "error": "no HELLO from the phone: connection closed or timed out",
+  "ok": false,
+  "peerHello": null,
+  "peerStatus": null,
+  "rtt": {
+    "count": 0,
+    "maxMs": 0.0,
+    "medianMs": 0.0,
+    "minMs": 0.0,
+    "p95Ms": 0.0
+  },
+  "tool": "cabled-probe 0.1.0",
+  "transport": "usbmux",
+  "up": {
+    "bytes": 0,
+    "chunks": 0,
+    "corruptChunks": 0,
+    "error": "",
+    "mbps": 0.0,
+    "ok": false,
+    "outOfOrderChunks": 0,
+    "peerMbps": 0.0,
+    "ran": false,
+    "seconds": 0.0
+  }
+}
