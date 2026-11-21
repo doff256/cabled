@@ -2,9 +2,9 @@ name: Windows
 
 on:
   push:
-    paths: ["windows/**", ".github/workflows/windows.yml"]
+    paths: ["windows/**", "app/**", ".github/workflows/windows.yml"]
   pull_request:
-    paths: ["windows/**", ".github/workflows/windows.yml"]
+    paths: ["windows/**", "app/**", ".github/workflows/windows.yml"]
   workflow_dispatch:
 
 env:
@@ -38,6 +38,15 @@ jobs:
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure -E VcamSelftest
 
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      # WinUI 3 app (C#), linking the cabled_core.dll built above.
+      - name: Build app
+        run: dotnet build app/Cabled.App/Cabled.App.csproj -c Release
+
       - name: Upload tools
         uses: actions/upload-artifact@v4
         with:
@@ -46,3 +55,9 @@ jobs:
             build/bin/Release/*.exe
             build/bin/Release/*.dll
             windows/testdata/*.h264
+
+      - name: Upload app
+        uses: actions/upload-artifact@v4
+        with:
+          name: cabled-app
+          path: app/Cabled.App/bin/x64/Release/net10.0-windows10.0.26100.0/win-x64/

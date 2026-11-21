@@ -1,0 +1,99 @@
+#pragma once
+// The Cabled engine (R4): finds the phone, keeps the connection alive, decodes video and feeds the
+// virtual camera and the preview. Long-running; reconnects by itself (docs/architecture.md state
+// machine, docs/reliability-and-testing.md F1-F5, F9, F17).
+//
+// Threads:
+//   connection  find phone -> connect -> handshake -> receive loop; reconnect with backoff
+//   decode      bounded packet queue -> FFmpeg -> virtual camera + preview
+//   housekeeping  pings + watchdog, status cards into the camera when there's no live video, stats
+
+#include "net.h"
+
+#include <nlohmann/json.hpp>
+
+#include <atomic>
+#include <condition_variable>
+#include <cstdint>
+#include <deque>
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <optional>
+#include <string>
+#include <thread>
+#include <vector>
+
+struct AVFrame;
+
+namespace cabled::engine {
+
+enum class EngineState {
+    Stopped,
+    NoService,            // Apple Mobile Device Service not reachable (F2)
+    NoDevice,             // no iPhone on USB (F1)
+    WaitingForCompanion,  // iPhone there, app not listening (F4, F18)
+    Connecting,           // handshake / waiting for the first frame
+    Incompatible,         // protocol mismatch (F17)
+    Streaming,
+    Paused,               // phone reports its camera is interrupted (F5, F6, F7)
+    Error,                // phone refused the configuration etc.; retried
+};
+const char* stateName(EngineState s);
+
+struct EngineStatus {
+    EngineState state = EngineState::Stopped;
+    std::string headline;  // short, for the UI / status card
+    std::string detail;    // what to do next
+    std::string transport;  // "usb" or "tcp"
+    std::string deviceModel, deviceSystem, deviceId, companionVersion;
+    uint32_t width = 0, height = 0;
+    double fps = 0, mbps = 0, decodeMs = 0, latencyMs = 0;
+    bool hardwareDecode = false;
+    uint64_t framesDecoded = 0, keyframeRequests = 0, reconnects = 0;
+    std::string vcam;  // virtual camera state, e.g. "STREAMING NV12 1920x1080@30"
+    bool vcamInUse = false;
+    std::string thermal;
+    double battery = -1;
+    nlohmann::json toJson() const;
+};
+
+struct EngineConfig {
+    std::string tcpTarget;  // "ip:port" -> talk to a fake phone over TCP; empty -> USB
+    std::string udid;       // USB: a specific iPhone (empty = first)
+    uint16_t devicePort = 47800;
+    uint32_t width = 1920, height = 1080;
+    double fps = 30;
+    uint32_t bitrate = 25'000'000;
+    bool hardwareDecode = true;
+    bool virtualCamera = true;
+    uint32_t previewMaxWidth = 960;  // 0 = no preview
+    double watchdogSeconds = 5;      // silence before the connection is dropped
+    double retrySeconds = 1;
+    std::function<void(const std::string&)> log;
+    // Tests: every decoded frame (decode thread).
+    std::function<void(const AVFrame*, uint32_t frameSeq)> frameSink;
+};
+
+class Engine {
+public:
+    explicit Engine(EngineConfig config);
+    ~Engine();
+    Engine(const Engine&) = delete;
+    Engine& operator=(const Engine&) = delete;
+
+    void start();
+    void stop();
+
+    EngineStatus status() const;
+    // Latest preview frame (BGRA, top-down). Returns false if there's nothing newer than `seq`.
+    bool copyPreview(std::vector<uint8_t>& bgra, uint32_t& width, uint32_t& height, uint64_t& seq) const;
+    void setPreviewEnabled(bool enabled) { previewEnabled_ = enabled; }
+
+private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
+    std::atomic<bool> previewEnabled_{true};
+};
+
+}  // namespace cabled::engine

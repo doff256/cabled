@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
+    <RootNamespace>Cabled.App</RootNamespace>
+    <!-- Product name lives in one place per platform (D-23); the exe name follows it. -->
+    <AssemblyName>Cabled</AssemblyName>
+    <Product>Cabled</Product>
+    <Version>0.1.0</Version>
+    <UseWinUI>true</UseWinUI>
+    <Platforms>x64</Platforms>
+    <Platform>x64</Platform>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <!-- Unpackaged, self-contained (D-16): no MSIX, no separate runtime installs. -->
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <SelfContained>true</SelfContained>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- Where the C++ build put cabled_core.dll and the FFmpeg DLLs. -->
+    <CabledNativeDir Condition="'$(CabledNativeDir)' == ''">$(MSBuildThisFileDirectory)..\..\build\bin\Release\</CabledNativeDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.7.0" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2957" />
+  </ItemGroup>
+
+  <!-- The native engine and its FFmpeg DLLs ship next to Cabled.exe. -->
+  <ItemGroup>
+    <None Include="$(CabledNativeDir)cabled_core.dll;$(CabledNativeDir)avcodec-*.dll;$(CabledNativeDir)avutil-*.dll;$(CabledNativeDir)swscale-*.dll"
+          Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+  </ItemGroup>
+
+  <Target Name="CheckNativeEngine" BeforeTargets="Build">
+    <Error Condition="!Exists('$(CabledNativeDir)cabled_core.dll')"
+           Text="cabled_core.dll not found in $(CabledNativeDir). Build the C++ side first: cmake -S windows -B build &amp;&amp; cmake --build build --config Release" />
+  </Target>
+
+</Project>

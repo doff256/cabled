@@ -41,6 +41,28 @@ std::string VcamOutput::describe() {
     return buf;
 }
 
+bool VcamOutput::activeSize(uint32_t& width, uint32_t& height) {
+    if (state() != State::Streaming) return false;
+    width = uint32_t(ring_.header()->activeWidth);
+    height = uint32_t(ring_.header()->activeHeight);
+    return width > 0 && height > 0;
+}
+
+VcamOutput::State VcamOutput::publishBgra(const uint8_t* bgra, uint32_t width, uint32_t height, uint32_t stride,
+                                          int64_t captureQpc) {
+    const State s = state();
+    if (s != State::Streaming) return s;
+    const vcam::Header* h = ring_.header();
+    const uint32_t fourcc = uint32_t(h->activeFourcc);
+    const uint32_t w = uint32_t(h->activeWidth), hh = uint32_t(h->activeHeight);
+    const size_t bytes = vcam::packedFrameBytes(fourcc, w, hh);
+    if (bytes == 0) return s;
+    buffer_.resize(bytes);
+    const vcam::FrameView view = vcam::packedView(fourcc, w, hh, buffer_.data());
+    if (converter_.convertBgra(bgra, width, height, stride, view)) ring_.publish(view, captureQpc);
+    return s;
+}
+
 VcamOutput::State VcamOutput::publish(const AVFrame* frame, int64_t captureQpc) {
     const State s = state();
     if (s != State::Streaming) {

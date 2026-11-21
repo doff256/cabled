@@ -40,14 +40,20 @@ std::string lastErrorString() {
 
 Socket::~Socket() { close(); }
 
-Socket::Socket(Socket&& other) noexcept : h_(std::exchange(other.h_, kInvalid)) {}
+Socket::Socket(Socket&& other) noexcept
+    : h_(std::exchange(other.h_, kInvalid)), aborted_(other.aborted_.exchange(false)) {}
 
 Socket& Socket::operator=(Socket&& other) noexcept {
     if (this != &other) {
         close();
         h_ = std::exchange(other.h_, kInvalid);
+        aborted_ = other.aborted_.exchange(false);
     }
     return *this;
+}
+
+void Socket::abort() {
+    if (h_ != kInvalid && !aborted_.exchange(true)) closesocket(raw(h_));
 }
 
 std::optional<Socket> Socket::connectTcp(const std::string& ipv4, uint16_t port, std::string* error) {
@@ -146,7 +152,7 @@ void Socket::shutdownBoth() {
 
 void Socket::close() {
     if (valid()) {
-        closesocket(raw(h_));
+        if (!aborted_.exchange(false)) closesocket(raw(h_));
         h_ = kInvalid;
     }
 }

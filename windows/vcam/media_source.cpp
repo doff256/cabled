@@ -26,8 +26,16 @@ HRESULT MediaSource::Initialize(IMFAttributes* activateAttributes) {
     GetModuleFileNameA(nullptr, exe, MAX_PATH);
     logf("MediaSource created in %s", exe);
 
+    // CABLED_VCAM_RING overrides the ring's name (tests run the source in-process and must not
+    // attach to the real camera's ring if an app happens to have it open).
+    std::wstring section = kDefaultSectionName, event = kDefaultEventName;
+    wchar_t overrideName[128] = {};
+    if (GetEnvironmentVariableW(L"CABLED_VCAM_RING", overrideName, 128) > 0) {
+        section = overrideName;
+        event = section + L".Frame";
+    }
     DWORD error = 0;
-    shared_ = Mapping::create(kDefaultSectionName, kDefaultEventName, &error);
+    shared_ = Mapping::create(section.c_str(), event.c_str(), &error);
     if (shared_.valid()) {
         logf("Shared frame ring ready (%s)", exe);
         shared_.setMessage("media source loaded");

@@ -212,6 +212,9 @@ std::vector<TypeInfo> listTypes(IMFSourceReader* reader) {
 // ------------------------------------------------------------------ selftest
 
 int cmdSelftest(const std::wstring& dllPath) {
+    // A private ring: never touch the real camera's ring (an app might have it open right now).
+    const std::wstring ring = L"Local\\CabledSelftest." + std::to_wstring(GetCurrentProcessId());
+    SetEnvironmentVariableW(L"CABLED_VCAM_RING", ring.c_str());
     HMODULE dll = LoadLibraryW(dllPath.c_str());
     if (!dll) {
         std::fprintf(stderr, "Can't load %s (error %lu)\n", narrow(dllPath).c_str(), GetLastError());

@@ -352,10 +352,18 @@ void MediaStream::WorkerLoop() {
 
             if (state_ == MF_STREAM_STATE_RUNNING && !pendingTokens_.empty()) {
                 bool delivered = false;
-                if (feederActive && shared_->header()->latestSeq > lastSeq_) {
+                const LONG64 latest = feederActive ? shared_->header()->latestSeq : 0;
+                if (feederActive && latest > lastSeq_) {
                     DeliverLocked(/*newFrameOnly=*/true, &delivered);  // fresh engine frame: send now
-                    if (delivered) nextDueQpc = now + cadenceQpc;
-                } else if (nextDueQpc == 0 || now >= nextDueQpc) {
+                    if (delivered) {
+                        nextDueQpc = now + cadenceQpc;
+                    } else {
+                        // Unusable (another format/size, e.g. mid-switch, or torn): skip it so the
+                        // repeat/placeholder cadence below keeps the app fed instead of stalling.
+                        lastSeq_ = latest;
+                    }
+                }
+                if (!delivered && (nextDueQpc == 0 || now >= nextDueQpc)) {
                     DeliverLocked(/*newFrameOnly=*/false, &delivered);  // repeat or placeholder
                     if (delivered) {
                         // Keep a steady cadence; resync if we fell more than a frame behind.

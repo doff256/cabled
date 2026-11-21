@@ -75,9 +75,15 @@ bool sendDown(Link& link, double seconds, size_t chunk, double throttleMbps) {
 // Streams the clip in a loop at the configured rate until stopped.
 class VideoSender {
 public:
-    VideoSender(Link& link, std::shared_ptr<const Clip> clip, double fps, uint32_t dropEvery,
-                std::function<void(const std::string&)> log)
-        : link_(link), clip_(std::move(clip)), fps_(fps), dropEvery_(dropEvery), log_(std::move(log)) {}
+    VideoSender(Link& link, std::shared_ptr<const Clip> clip, double fps, const Options& options,
+                std::atomic<bool>& frozen)
+        : link_(link),
+          clip_(std::move(clip)),
+          fps_(fps),
+          dropEvery_(options.dropEveryFrames),
+          options_(options),
+          frozen_(frozen),
+          log_(options.log) {}
     ~VideoSender() { stop(); }
 
     void start() {
@@ -99,7 +105,43 @@ private:
         size_t index = 0;
         uint32_t seq = 0;
         bool discontinuity = false;
+        const auto started = std::chrono::steady_clock::now();
+        bool disconnected = false, paused = false, pauseDone = false;
+        auto say = [&](const std::string& line) {
+            if (log_) log_(line);
+        };
         while (!stop_) {
+            const double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+            if (options_.disconnectAfterSeconds > 0 && !disconnected && elapsed >= options_.disconnectAfterSeconds) {
+                disconnected = true;
+                say("scenario: dropping the connection");
+                link_.socket().abort();  // the read loop ends too
+                return;
+            }
+            if (options_.freezeAfterSeconds > 0 && elapsed >= options_.freezeAfterSeconds) {
+                if (!frozen_.exchange(true)) say("scenario: freezing (no video, no pongs)");
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                continue;
+            }
+            if (options_.pauseAfterSeconds > 0 && !pauseDone) {
+                if (!paused && elapsed >= options_.pauseAfterSeconds) {
+                    paused = true;
+                    say("scenario: pausing (background)");
+                    link_.json(Type::Status, {{"session", "interrupted"}, {"reason", "background"}});
+                }
+                if (paused && elapsed >= options_.pauseAfterSeconds + options_.pauseForSeconds) {
+                    paused = false;
+                    pauseDone = true;
+                    say("scenario: resuming");
+                    link_.json(Type::Status, {{"session", "running"}});
+                    keyframeRequested_ = true;  // a camera restart begins with a keyframe
+                }
+                if (paused) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                    next = std::chrono::steady_clock::now();
+                    continue;
+                }
+            }
             if (keyframeRequested_.exchange(false)) {
                 // Jump to the next keyframe, as a real encoder would emit one on request.
                 for (size_t step = 0; step < clip_->units.size(); ++step) {
@@ -134,6 +176,8 @@ private:
     std::shared_ptr<const Clip> clip_;
     double fps_;
     uint32_t dropEvery_;
+    const Options& options_;
+    std::atomic<bool>& frozen_;
     std::function<void(const std::string&)> log_;
     std::thread thread_;
     std::atomic<bool> stop_{false};
@@ -193,6 +237,7 @@ void serveClient(net::Socket c, const Options& o) {
     link.json(Type::Status, {{"thermal", "nominal"}, {"battery", 0.8}, {"charging", true}});
     link.text(Type::Log, "fake phone ready");
 
+    std::atomic<bool> frozen{false};
     std::unique_ptr<VideoSender> sender;
     bool upActive = false;
     uint64_t upBytes = 0;
@@ -206,6 +251,7 @@ void serveClient(net::Socket c, const Options& o) {
                 log("PC hello: " + std::string(m.text()));
                 break;
             case Type::Ping:
+                if (frozen) break;  // a hung phone doesn't answer
                 if (auto t = proto::decodePing(m)) {
                     const auto pong = proto::encodePong({*t, proto::nowNs()});
                     if (!link.message(Type::Pong, pong.data(), pong.size())) return;
@@ -233,7 +279,7 @@ void serveClient(net::Socket c, const Options& o) {
                                              {"height", o.clip->height},
                                              {"fps", fps},
                                              {"bitrate", j.value("bitrate", 0)}});
-                sender = std::make_unique<VideoSender>(link, o.clip, fps, o.dropEveryFrames, o.log);
+                sender = std::make_unique<VideoSender>(link, o.clip, fps, o, frozen);
                 sender->start();
                 log("video started at " + std::to_string(fps) + " fps");
                 break;

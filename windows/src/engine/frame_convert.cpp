@@ -62,4 +62,18 @@ bool FrameConverter::convert(const AVFrame* src, const vcam::FrameView& dst) {
     return rows == int(dst.height);
 }
 
+bool FrameConverter::convertBgra(const uint8_t* bgra, uint32_t width, uint32_t height, uint32_t stride,
+                                 const vcam::FrameView& dst) {
+    AVFrame* f = av_frame_alloc();
+    if (!f) return false;
+    f->format = AV_PIX_FMT_BGRA;
+    f->width = int(width);
+    f->height = int(height);
+    f->data[0] = const_cast<uint8_t*>(bgra);  // read-only use; no buffer refs, so free won't touch it
+    f->linesize[0] = int(stride);
+    const bool ok = convert(f, dst);
+    av_frame_free(&f);
+    return ok;
+}
+
 }  // namespace cabled::engine

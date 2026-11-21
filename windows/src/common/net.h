@@ -1,6 +1,7 @@
 #pragma once
 // Minimal RAII wrapper over Winsock TCP sockets (IPv4 only; everything we talk to is on 127.0.0.1).
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -52,9 +53,13 @@ public:
     void setBufferSizes(int bytes);
     void shutdownBoth();
     void close();
+    // Thread-safe: makes a recv/send blocked in another thread fail right away (closes the handle;
+    // the owner's later close() is then a no-op).
+    void abort();
 
 private:
     Handle h_ = kInvalid;
+    std::atomic<bool> aborted_{false};
 };
 
 // Text for the last Winsock error on this thread.

@@ -107,18 +107,25 @@ add_dependencies(cabled-vcam cabled_vcam_mf)
 find_package(FFMPEG REQUIRED)  # from vcpkg (windows/vcpkg.json), LGPL DLLs
 add_library(cabled_engine STATIC
     src/engine/decoder.cpp
+    src/engine/engine.cpp
     src/engine/frame_convert.cpp
-    src/engine/session.cpp
+    src/engine/status_card.cpp
     src/engine/vcam_output.cpp)
 target_include_directories(cabled_engine PUBLIC src/engine)
 target_include_directories(cabled_engine SYSTEM PUBLIC ${FFMPEG_INCLUDE_DIRS})
 target_link_directories(cabled_engine PUBLIC ${FFMPEG_LIBRARY_DIRS})
-target_link_libraries(cabled_engine PUBLIC cabled_common cabled_vcam_shared ${FFMPEG_LIBRARIES})
+target_link_libraries(cabled_engine PUBLIC cabled_common cabled_vcam_shared ${FFMPEG_LIBRARIES} gdi32)
 cabled_warnings(cabled_engine)
 
 add_executable(cabled-engine tools/engine/main.cpp)
 target_link_libraries(cabled-engine PRIVATE cabled_engine)
 cabled_warnings(cabled-engine)
+
+# C ABI for the WinUI app (D-16)
+add_library(cabled_core SHARED src/core_api/cabled_core.cpp)
+target_include_directories(cabled_core PUBLIC src/core_api)
+target_link_libraries(cabled_core PRIVATE cabled_engine)
+cabled_warnings(cabled_core)
 
 # --- Tests ---
 enable_testing()

@@ -1,11 +1,12 @@
-// The engine end to end against the fake phone: CONFIGURE -> H.264 over TCP -> FFmpeg decode.
-// Uses windows/testdata/pattern_1080p30.h264, whose frames carry their frame number in the stamp
-// band, so we can check every decoded picture arrived, in order, intact.
+// The engine end to end against the fake phone over TCP: decode correctness, recovery, reconnects,
+// pauses and the watchdog. Uses windows/testdata/pattern_1080p30.h264, whose frames carry their
+// frame number in the pixels, so we can check every decoded picture arrived in order and intact.
 
+#include "engine.h"
 #include "fake_phone.h"
 #include "frame_convert.h"
 #include "net.h"
-#include "session.h"
+#include "status_card.h"
 #include "test_pattern.h"
 
 extern "C" {
@@ -14,56 +15,105 @@ extern "C" {
 
 #include <gtest/gtest.h>
 
+#include <atomic>
+#include <chrono>
+#include <mutex>
+#include <set>
 #include <thread>
 #include <vector>
 
 using namespace cabled;
+using namespace std::chrono_literals;
 
 namespace {
 
 const std::string kClip = std::string(CABLED_TESTDATA_DIR) + "/pattern_1080p30.h264";
 
-struct Collected {
-    engine::SessionStats stats;
-    std::vector<uint32_t> stampFrames;  // frame number read back from each decoded picture
-    uint32_t width = 0, height = 0;
+// A fake phone that keeps accepting connections (one at a time) until destroyed.
+class FakePhoneServer {
+public:
+    explicit FakePhoneServer(fakephone::Options options) : options_(std::move(options)) {
+        std::string err;
+        auto l = net::Socket::listenTcp("127.0.0.1", 0, &err);
+        EXPECT_TRUE(l) << err;
+        if (!l) return;
+        listener_ = std::move(*l);
+        port_ = listener_.localPort();
+        thread_ = std::thread([this] {
+            while (!stop_) {
+                auto client = listener_.accept(nullptr);
+                if (!client) return;
+                ++connections_;
+                fakephone::serveClient(std::move(*client), options_);
+            }
+        });
+    }
+    ~FakePhoneServer() {
+        stop_ = true;
+        listener_.abort();
+        if (thread_.joinable()) thread_.join();
+    }
+    std::string target() const { return "127.0.0.1:" + std::to_string(port_); }
+    int connections() const { return connections_; }
+
+private:
+    fakephone::Options options_;
+    net::WinsockSession winsock_;
+    net::Socket listener_;
+    uint16_t port_ = 0;
+    std::thread thread_;
+    std::atomic<bool> stop_{false};
+    std::atomic<int> connections_{0};
 };
 
-Collected run(const fakephone::Options& phone, bool hardware, double seconds) {
-    net::WinsockSession winsock;
-    Collected c;
+fakephone::Options phoneWithClip() {
+    fakephone::Options o;
     std::string err;
-    auto listener = net::Socket::listenTcp("127.0.0.1", 0, &err);
-    EXPECT_TRUE(listener) << err;
-    if (!listener) return c;
-    const uint16_t port = listener->localPort();
-    std::thread phoneThread([&] {
-        auto client = listener->accept(nullptr);
-        if (client) fakephone::serveClient(std::move(*client), phone);
-    });
+    o.clip = fakephone::loadClip(kClip, 1920, 1080, 30, &err);
+    EXPECT_TRUE(o.clip) << err;
+    return o;
+}
 
-    auto socket = net::Socket::connectTcp("127.0.0.1", port, &err);
-    EXPECT_TRUE(socket) << err;
-    if (socket) {
-        engine::SessionOptions o;
-        o.hardwareDecode = hardware;
-        o.seconds = seconds;
-        engine::FrameConverter converter;
-        std::vector<uint8_t> nv12;
-        c.stats = engine::runSession(
-            *socket, o,
-            [&](const AVFrame* frame, const engine::FrameInfo&) {
-                c.width = uint32_t(frame->width);
-                c.height = uint32_t(frame->height);
-                nv12.resize(vcam::packedFrameBytes(vcam::kFourccNV12, c.width, c.height));
-                const auto view = vcam::packedView(vcam::kFourccNV12, c.width, c.height, nv12.data());
-                if (converter.convert(frame, view)) c.stampFrames.push_back(vcam::readStamp(view).frame);
-            },
-            nullptr, nullptr);
+struct Recorder {
+    std::mutex mutex;
+    std::vector<uint32_t> stampFrames;
+    std::set<engine::EngineState> statesSeen;
+    engine::FrameConverter converter;
+    std::vector<uint8_t> nv12;
+
+    void onFrame(const AVFrame* f) {
+        const uint32_t w = uint32_t(f->width), h = uint32_t(f->height);
+        std::lock_guard<std::mutex> lock(mutex);
+        nv12.resize(vcam::packedFrameBytes(vcam::kFourccNV12, w, h));
+        const auto view = vcam::packedView(vcam::kFourccNV12, w, h, nv12.data());
+        if (converter.convert(f, view)) stampFrames.push_back(vcam::readStamp(view).frame);
     }
-    socket.reset();
-    phoneThread.join();
+    size_t frames() {
+        std::lock_guard<std::mutex> lock(mutex);
+        return stampFrames.size();
+    }
+};
+
+engine::EngineConfig configFor(const FakePhoneServer& phone, Recorder& rec, bool hardware = false) {
+    engine::EngineConfig c;
+    c.tcpTarget = phone.target();
+    c.hardwareDecode = hardware;
+    c.virtualCamera = false;  // tests run without Frame Server
+    c.previewMaxWidth = 320;
+    c.retrySeconds = 0.2;
+    c.frameSink = [&rec](const AVFrame* f, uint32_t) { rec.onFrame(f); };
     return c;
+}
+
+// Runs the engine for `seconds`, sampling its state every 50 ms.
+void runFor(engine::Engine& e, Recorder& rec, double seconds) {
+    e.start();
+    const auto end = std::chrono::steady_clock::now() + std::chrono::duration<double>(seconds);
+    while (std::chrono::steady_clock::now() < end) {
+        rec.statesSeen.insert(e.status().state);
+        std::this_thread::sleep_for(50ms);
+    }
+    e.stop();
 }
 
 void expectConsecutive(const std::vector<uint32_t>& frames, uint32_t clipLength) {
@@ -76,64 +126,176 @@ void expectConsecutive(const std::vector<uint32_t>& frames, uint32_t clipLength)
 
 }  // namespace
 
-TEST(Engine, DecodesFakePhoneStreamInOrder_Software) {
-    std::string err;
-    fakephone::Options phone;
-    phone.clip = fakephone::loadClip(kClip, 1920, 1080, 30, &err);
-    ASSERT_TRUE(phone.clip) << err;
+TEST(Engine, DecodesFakePhoneStreamInOrder) {
+    auto phoneOptions = phoneWithClip();
+    FakePhoneServer phone(phoneOptions);
+    Recorder rec;
+    engine::Engine e(configFor(phone, rec));
+    runFor(e, rec, 2.5);
 
-    const Collected c = run(phone, /*hardware=*/false, 2.0);
-    EXPECT_TRUE(c.stats.error.empty()) << c.stats.error;
-    EXPECT_TRUE(c.stats.configured.value("ok", false));
-    EXPECT_EQ(c.width, 1920u);
-    EXPECT_EQ(c.height, 1080u);
-    EXPECT_GE(c.stats.framesDecoded, 45u);  // ~60 expected in 2 s at 30 fps
-    EXPECT_EQ(c.stats.decodeErrors, 0u);
-    EXPECT_EQ(c.stats.sequenceGaps, 0u);
-    EXPECT_EQ(c.stampFrames.front(), 1u);  // starts on the clip's first (key)frame
-    expectConsecutive(c.stampFrames, uint32_t(phone.clip->units.size()));
+    const auto s = e.status();
+    EXPECT_GE(rec.frames(), 50u);  // ~70 expected
+    EXPECT_EQ(rec.stampFrames.front(), 1u);  // started on the clip's first (key)frame
+    expectConsecutive(rec.stampFrames, uint32_t(phoneOptions.clip->units.size()));
+    EXPECT_TRUE(rec.statesSeen.count(engine::EngineState::Streaming));
+    EXPECT_EQ(s.state, engine::EngineState::Stopped);
+    EXPECT_EQ(s.deviceModel, "FakePhone1,1");
+    EXPECT_EQ(s.keyframeRequests, 0u);
+
+    // Preview frames were produced at the requested width.
+    std::vector<uint8_t> bgra;
+    uint32_t w = 0, h = 0;
+    uint64_t seq = 0;
+    ASSERT_TRUE(e.copyPreview(bgra, w, h, seq));
+    EXPECT_EQ(w, 320u);
+    EXPECT_EQ(h, 180u);
+    EXPECT_EQ(bgra[3], 255);  // opaque
 }
 
-TEST(Engine, DecodesWithHardwareWhenAvailable) {
-    std::string err;
-    fakephone::Options phone;
-    phone.clip = fakephone::loadClip(kClip, 1920, 1080, 30, &err);
-    ASSERT_TRUE(phone.clip) << err;
-
-    const Collected c = run(phone, /*hardware=*/true, 1.5);
-    EXPECT_TRUE(c.stats.error.empty()) << c.stats.error;
-    EXPECT_GE(c.stats.framesDecoded, 30u);
-    EXPECT_EQ(c.stats.decodeErrors, 0u);
-    expectConsecutive(c.stampFrames, uint32_t(phone.clip->units.size()));
-    // CI machines have no GPU decoder; then FFmpeg falls back to software and this still passes.
-    std::printf("hardware decode active: %s\n", c.stats.hardwareDecode ? "yes" : "no");
+TEST(Engine, HardwareDecodeWhenAvailable) {
+    auto phoneOptions = phoneWithClip();
+    FakePhoneServer phone(phoneOptions);
+    Recorder rec;
+    engine::Engine e(configFor(phone, rec, /*hardware=*/true));
+    runFor(e, rec, 2.0);
+    EXPECT_GE(rec.frames(), 35u);
+    expectConsecutive(rec.stampFrames, uint32_t(phoneOptions.clip->units.size()));
+    // CI has no GPU decoder; FFmpeg then falls back to software and this still passes.
+    std::printf("hardware decode active: %s\n", e.status().hardwareDecode ? "yes" : "no");
 }
 
-// A frame lost in transit (F9): the engine must notice the sequence gap, ask for a keyframe, skip
-// the broken GOP and resume cleanly, never showing a corrupted picture.
-TEST(Engine, RecoversFromLostFramesWithKeyframeRequest) {
-    std::string err;
-    fakephone::Options phone;
-    phone.clip = fakephone::loadClip(kClip, 1920, 1080, 30, &err);
-    ASSERT_TRUE(phone.clip) << err;
-    phone.dropEveryFrames = 20;
-
-    const Collected c = run(phone, /*hardware=*/false, 3.0);
-    EXPECT_TRUE(c.stats.error.empty()) << c.stats.error;
-    EXPECT_GE(c.stats.sequenceGaps, 2u);
-    EXPECT_GE(c.stats.keyframeRequests, 2u);
-    EXPECT_EQ(c.stats.decodeErrors, 0u);
-    EXPECT_GT(c.stats.framesDroppedWaitingForKeyframe, 0u);
-    EXPECT_GE(c.stats.framesDecoded, 30u);
-    // Every picture we did show is intact: its stamp decodes to a real clip frame number.
-    for (uint32_t f : c.stampFrames) {
+// F9: lost frames -> keyframe request -> skip the broken GOP -> clean resume.
+TEST(Engine, RecoversFromLostFrames) {
+    auto phoneOptions = phoneWithClip();
+    phoneOptions.dropEveryFrames = 20;
+    FakePhoneServer phone(phoneOptions);
+    Recorder rec;
+    engine::Engine e(configFor(phone, rec));
+    runFor(e, rec, 3.0);
+    EXPECT_GE(e.status().keyframeRequests, 2u);
+    EXPECT_GE(rec.frames(), 30u);
+    std::lock_guard<std::mutex> lock(rec.mutex);
+    for (uint32_t f : rec.stampFrames) {  // every picture shown is intact
         EXPECT_GE(f, 1u);
-        EXPECT_LE(f, uint32_t(phone.clip->units.size()));
+        EXPECT_LE(f, uint32_t(phoneOptions.clip->units.size()));
     }
 }
 
+// F1: the connection drops; the engine reconnects by itself and video continues.
+TEST(Engine, ReconnectsAfterDisconnect) {
+    auto phoneOptions = phoneWithClip();
+    phoneOptions.disconnectAfterSeconds = 1.0;
+    FakePhoneServer phone(phoneOptions);
+    Recorder rec;
+    engine::Engine e(configFor(phone, rec));
+    e.start();
+    std::this_thread::sleep_for(1500ms);
+    const size_t before = rec.frames();
+    std::this_thread::sleep_for(1300ms);  // reconnects at ~1.2 s, then disconnects again at ~2.2 s
+    const size_t after = rec.frames();
+    const auto s = e.status();
+    e.stop();
+    EXPECT_GE(phone.connections(), 2);
+    EXPECT_GE(s.reconnects, 1u);
+    EXPECT_GT(after, before + 10) << "video should continue after reconnecting";
+}
+
+// F5: the phone reports its camera is interrupted; the engine shows Paused, then resumes.
+TEST(Engine, PausesAndResumes) {
+    auto phoneOptions = phoneWithClip();
+    phoneOptions.pauseAfterSeconds = 0.8;
+    phoneOptions.pauseForSeconds = 1.0;
+    FakePhoneServer phone(phoneOptions);
+    Recorder rec;
+    engine::Engine e(configFor(phone, rec));
+    e.start();
+    bool sawPaused = false;
+    std::string pausedHeadline;
+    const auto end = std::chrono::steady_clock::now() + 3500ms;
+    while (std::chrono::steady_clock::now() < end) {
+        const auto s = e.status();
+        if (s.state == engine::EngineState::Paused) {
+            sawPaused = true;
+            pausedHeadline = s.headline;
+        }
+        std::this_thread::sleep_for(50ms);
+    }
+    const auto final = e.status();
+    e.stop();
+    EXPECT_TRUE(sawPaused);
+    EXPECT_NE(pausedHeadline.find("background"), std::string::npos) << pausedHeadline;
+    EXPECT_EQ(final.state, engine::EngineState::Streaming) << "should have resumed";
+    EXPECT_EQ(final.reconnects, 0u) << "a pause must not drop the connection";
+}
+
+// A hung phone (socket open, nothing arriving): the watchdog drops it and reconnects.
+TEST(Engine, WatchdogDropsSilentPhone) {
+    auto phoneOptions = phoneWithClip();
+    phoneOptions.freezeAfterSeconds = 0.8;
+    FakePhoneServer phone(phoneOptions);
+    Recorder rec;
+    auto config = configFor(phone, rec);
+    config.watchdogSeconds = 1.0;
+    engine::Engine e(config);
+    e.start();
+    std::this_thread::sleep_for(3500ms);
+    const auto s = e.status();
+    e.stop();
+    EXPECT_GE(s.reconnects, 1u);
+    EXPECT_GE(phone.connections(), 2);
+}
+
 TEST(Engine, ReportsRefusedConfigure) {
-    fakephone::Options phone;  // no clip: the fake phone answers CONFIGURED ok=false
-    const Collected c = run(phone, false, 2.0);
-    EXPECT_NE(c.stats.error.find("refused CONFIGURE"), std::string::npos) << c.stats.error;
+    FakePhoneServer phone(fakephone::Options{});  // no clip: CONFIGURED ok=false
+    Recorder rec;
+    engine::Engine e(configFor(phone, rec));
+    e.start();
+    std::this_thread::sleep_for(800ms);
+    const auto s = e.status();
+    e.stop();
+    EXPECT_EQ(s.state, engine::EngineState::Error);
+    EXPECT_NE(s.headline.find("refused"), std::string::npos) << s.headline;
+}
+
+TEST(Engine, WaitsWhileNobodyAnswers) {
+    net::WinsockSession winsock;
+    uint16_t port = 0;
+    {
+        auto l = net::Socket::listenTcp("127.0.0.1", 0, nullptr);
+        ASSERT_TRUE(l);
+        port = l->localPort();
+    }
+    engine::EngineConfig c;
+    c.tcpTarget = "127.0.0.1:" + std::to_string(port);
+    c.virtualCamera = false;
+    c.retrySeconds = 0.1;
+    engine::Engine e(c);
+    e.start();
+    // Windows takes ~2 s to report "refused" for a localhost port nobody listens on.
+    std::this_thread::sleep_for(3000ms);
+    EXPECT_EQ(e.status().state, engine::EngineState::WaitingForCompanion);
+    e.stop();
+    EXPECT_EQ(e.status().state, engine::EngineState::Stopped);
+}
+
+TEST(StatusCard, RendersReadableText) {
+    const auto card = engine::renderStatusCard(1280, 720, L"Open Cabled on your iPhone", L"Keep it on screen.");
+    ASSERT_EQ(card.bgra.size(), size_t(1280) * 720 * 4);
+    size_t bright = 0;
+    for (size_t i = 0; i < card.bgra.size(); i += 4) {
+        if (card.bgra[i + 1] > 200) ++bright;  // near-white text pixels
+        ASSERT_EQ(card.bgra[i + 3], 255);
+    }
+    EXPECT_GT(bright, 1000u);
+}
+
+TEST(StatusCard, LongHeadlineFitsSmallFrames) {
+    const uint32_t w = 640, h = 360;
+    const auto card = engine::renderStatusCard(w, h, L"Cabled is in the background on your iPhone", L"Open it again.");
+    // Nothing bright in the outer 5% on either side: the headline shrank to fit.
+    for (uint32_t y = 0; y < h; ++y) {
+        for (uint32_t x : {0u, 10u, 20u, w - 21, w - 11, w - 1}) {
+            ASSERT_LT(card.bgra[(size_t(y) * w + x) * 4 + 1], 150) << "text reaches x=" << x << " y=" << y;
+        }
+    }
 }

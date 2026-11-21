@@ -87,7 +87,7 @@ u8[]                AVCC length-prefixed NAL units; parameter sets (SPS/PPS/VPS)
 | 0x0004 | PING | binary: `u64 pcTimeNs` |
 | 0x0005 | PONG | binary: `u64 pcTimeNs` (echoed), `u64 phoneTimeNs` |
 | 0x0006 | LOG | UTF-8 text |
-| 0x0007 | STATUS | JSON `{thermal, battery, charging}` |
+| 0x0007 | STATUS | JSON `{thermal, battery, charging}`, plus (R4) `session: "running"\|"interrupted"` and `reason: "background"\|"camera-in-use"\|"system-pressure"\|"call"` when the camera stops or resumes. The PC shows Paused and keeps the connection |
 | 0x0010 | PROBE_REQUEST | JSON `{direction: "down"\|"up", seconds, chunk}` |
 | 0x0011 | PROBE_DATA | binary: `u64 seq`, then `byte[i] = i & 0xFF` for i ≥ 8 (lets the receiver detect corruption and gaps) |
 | 0x0012 | PROBE_END | JSON `{direction, bytes, seconds, chunks}` from the sender |

@@ -34,6 +34,7 @@ One focused Claude Code session on one milestone, ending in a **buildable, teste
 | R1 | Built and tested on the Windows side. Waiting for the device test | [runs/R1.md](runs/R1.md) |
 | R2 | ✅ Done. Virtual camera works in MF, DirectShow and Chromium apps (OBS confirmed by owner). D-09 settled, no DirectShow filter on 11 | [runs/R2.md](runs/R2.md) |
 | R3 | Windows half ✅ (engine: H.264 → FFmpeg D3D11VA → Cabled Camera, 2.8 ms capture → app with the fake phone). iPhone half next, after R1's device test | [runs/R3.md](runs/R3.md) |
+| R4 | ✅ Windows side: resilient engine (reconnect, pause, watchdog, status cards in the camera), `cabled_core.dll`, first WinUI 3 app. Pending: DLL reinstall (UAC) and real-iPhone check | [runs/R4.md](runs/R4.md) |
 
 ### Phase 0: spikes (do these first; they can change the plan)
 | Run | Goal | Exit criteria | You do |

@@ -17,6 +17,8 @@ public:
     FrameConverter& operator=(const FrameConverter&) = delete;
 
     bool convert(const AVFrame* src, const vcam::FrameView& dst);
+    // Same, from a top-down BGRA image (e.g. a rendered status card).
+    bool convertBgra(const uint8_t* bgra, uint32_t width, uint32_t height, uint32_t stride, const vcam::FrameView& dst);
     bool lastWasCopy() const { return lastWasCopy_; }
 
 private:

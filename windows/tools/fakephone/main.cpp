@@ -34,10 +34,17 @@ int main(int argc, char** argv) {
         else if (arg == "--clip-size" && hasValue) {
             if (std::sscanf(argv[++i], "%ux%u", &clipWidth, &clipHeight) != 2) return 64;
         } else if (arg == "--clip-fps" && hasValue) clipFps = std::stod(argv[++i]);
+        else if (arg == "--drop-every" && hasValue) options.dropEveryFrames = uint32_t(std::stoul(argv[++i]));
+        else if (arg == "--disconnect-after" && hasValue) options.disconnectAfterSeconds = std::stod(argv[++i]);
+        else if (arg == "--pause-after" && hasValue) options.pauseAfterSeconds = std::stod(argv[++i]);
+        else if (arg == "--pause-for" && hasValue) options.pauseForSeconds = std::stod(argv[++i]);
+        else if (arg == "--freeze-after" && hasValue) options.freezeAfterSeconds = std::stod(argv[++i]);
         else {
             std::printf(
                 "cabled-fakephone [--port 47800] [--throttle-mbps N] [--model ID] [--protocol X.Y]\n"
                 "                 [--clip file.h264 [--clip-size 1920x1080] [--clip-fps 30]]\n"
+                "                 [--drop-every N] [--disconnect-after S] [--pause-after S [--pause-for S]]\n"
+                "                 [--freeze-after S]   (misbehaviour, timed from video start, once per connection)\n"
                 "Serves one PC at a time on 127.0.0.1, forever (Ctrl+C to stop). With --clip it streams\n"
                 "that Annex-B H.264 file in a loop after CONFIGURE, like the iPhone streams its camera.\n");
             return arg == "--help" || arg == "-h" ? 0 : 64;
