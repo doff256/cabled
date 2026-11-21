@@ -234,6 +234,15 @@ void serveClient(net::Socket c, const Options& o) {
         {"signingExpiry", nullptr},
         {"bind", "loopback"}};
     if (!link.json(Type::Hello, hello)) return;
+    if (o.sendCaps) {
+        // Like an iPhone rear camera; the clip itself is always what's streamed.
+        link.json(Type::Caps, {{"camera", "back-wide"},
+                               {"codecs", {"h264", "hevc"}},
+                               {"formats",
+                                {{{"width", 1280}, {"height", 720}, {"minFps", 1}, {"maxFps", 60}},
+                                 {{"width", 1920}, {"height", 1080}, {"minFps", 1}, {"maxFps", 60}},
+                                 {{"width", 3840}, {"height", 2160}, {"minFps", 1}, {"maxFps", 60}}}}});
+    }
     link.json(Type::Status, {{"thermal", "nominal"}, {"battery", 0.8}, {"charging", true}});
     link.text(Type::Log, "fake phone ready");
 
@@ -259,6 +268,7 @@ void serveClient(net::Socket c, const Options& o) {
                 break;
             case Type::Configure: {
                 auto j = proto::parseJson(m).value_or(nlohmann::json::object());
+                if (o.onConfigure) o.onConfigure(j);
                 const bool enabled = j.value("enabled", true);
                 if (sender) sender->stop();
                 if (!enabled) {

@@ -21,7 +21,9 @@ public:
     Decoder(const Decoder&) = delete;
     Decoder& operator=(const Decoder&) = delete;
 
-    bool open(bool preferHardware, std::string* error);
+    // hevc = false: H.264; true: HEVC (H.265).
+    bool open(bool preferHardware, std::string* error, bool hevc = false);
+    bool isHevc() const { return hevc_; }
     void close();
 
     // Feeds one access unit (Annex-B). Calls onFrame for every picture that comes out; the frame is
@@ -44,6 +46,7 @@ private:
     AVFrame* swFrame_ = nullptr;
     std::vector<uint8_t> padded_;
     bool hardwareFrames_ = false;
+    bool hevc_ = false;
 };
 
 std::string ffmpegError(int code);

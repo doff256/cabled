@@ -21,6 +21,7 @@ public:
     State publishBgra(const uint8_t* bgra, uint32_t width, uint32_t height, uint32_t stride, int64_t captureQpc);
     // Size the consuming app chose (false if no app is streaming).
     bool activeSize(uint32_t& width, uint32_t& height);
+    bool activeFormat(uint32_t& width, uint32_t& height, double& fps);
     State state();
     std::string describe();  // e.g. "STREAMING NV12 1920x1080@30"
     bool lastWasCopy() const { return converter_.lastWasCopy(); }

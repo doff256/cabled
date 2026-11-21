@@ -82,7 +82,7 @@ public sealed partial class MainWindow : Window
 
         StatusDot.Fill = new SolidColorBrush(state switch
         {
-            "streaming" => Colors.LimeGreen,
+            "streaming" or "idle" => Colors.LimeGreen,
             "paused" or "connecting" or "waiting-for-companion" => Colors.Orange,
             "no-service" or "incompatible" or "error" => Colors.IndianRed,
             _ => Colors.Gray,
@@ -99,7 +99,10 @@ public sealed partial class MainWindow : Window
             ? $"{v.GetProperty("width").GetUInt32()}×{v.GetProperty("height").GetUInt32()} · " +
               $"{v.GetProperty("fps").GetDouble():0.0} fps · {v.GetProperty("mbps").GetDouble():0.0} Mbit/s · " +
               $"{(v.GetProperty("hardwareDecode").GetBoolean() ? "GPU" : "CPU")} decode {v.GetProperty("decodeMs").GetDouble():0.0} ms · " +
-              $"capture→decoded {v.GetProperty("latencyMs").GetDouble():0.0} ms"
+              $"capture→decoded {v.GetProperty("latencyMs").GetDouble():0.0} ms · " +
+              $"asked phone for {s.GetProperty("link").GetProperty("config").GetString()} · " +
+              $"link {s.GetProperty("link").GetProperty("mbps").GetDouble():0} Mbit/s"
+            : state == "idle" ? $"Video off until an app opens Cabled Camera · link {s.GetProperty("link").GetProperty("mbps").GetDouble():0} Mbit/s"
             : "";
         var vcam = s.GetProperty("vcam");
         VcamText.Text = "Cabled Camera: " + (vcam.GetProperty("inUse").GetBoolean()

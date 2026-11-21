@@ -36,6 +36,7 @@ enum class EngineState {
     Connecting,           // handshake / waiting for the first frame
     Incompatible,         // protocol mismatch (F17)
     Streaming,
+    Idle,                 // connected, video off because nobody is watching (R5)
     Paused,               // phone reports its camera is interrupted (F5, F6, F7)
     Error,                // phone refused the configuration etc.; retried
 };
@@ -55,6 +56,8 @@ struct EngineStatus {
     bool vcamInUse = false;
     std::string thermal;
     double battery = -1;
+    double linkMbps = 0;     // measured at connect (R5)
+    std::string videoConfig;  // what was negotiated, e.g. "1920x1080@60 H.264 40 Mbit/s"
     nlohmann::json toJson() const;
 };
 

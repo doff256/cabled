@@ -4,6 +4,8 @@
 
 #include "net.h"
 
+#include <nlohmann/json.hpp>
+
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -37,6 +39,9 @@ struct Options {
     double pauseForSeconds = 2;         // ...for this long, then report "running" and resume
     double freezeAfterSeconds = 0;      // go silent (no video, no pongs) but keep the socket open
     std::function<void(const std::string&)> log;
+    bool sendCaps = true;  // R5 CAPS after HELLO (false = behave like an R3 companion)
+    // Tests: every CONFIGURE the PC sends.
+    std::function<void(const nlohmann::json&)> onConfigure;
 };
 
 // Serves one connected PC until it says BYE or disconnects.

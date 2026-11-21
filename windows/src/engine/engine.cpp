@@ -2,6 +2,7 @@
 
 #include "decoder.h"
 #include "frame_convert.h"
+#include "negotiator.h"
 #include "product.h"
 #include "protocol.h"
 #include "status_card.h"
@@ -29,6 +30,7 @@ const char* stateName(EngineState s) {
         case EngineState::Connecting: return "connecting";
         case EngineState::Incompatible: return "incompatible";
         case EngineState::Streaming: return "streaming";
+        case EngineState::Idle: return "idle";
         case EngineState::Paused: return "paused";
         case EngineState::Error: return "error";
     }
@@ -46,6 +48,7 @@ nlohmann::json EngineStatus::toJson() const {
             {"counters", {{"framesDecoded", framesDecoded}, {"keyframeRequests", keyframeRequests},
                           {"reconnects", reconnects}}},
             {"vcam", {{"state", vcam}, {"inUse", vcamInUse}}},
+            {"link", {{"mbps", linkMbps}, {"config", videoConfig}}},
             {"phone", {{"thermal", thermal}, {"battery", battery}}}};
 }
 
@@ -58,6 +61,7 @@ struct Packet {
     uint32_t seq = 0;
     uint64_t captureNs = 0;
     bool flushFirst = false;
+    bool hevc = false;
 };
 
 std::wstring widen(const std::string& s) {
@@ -130,6 +134,15 @@ struct Engine::Impl {
     FrameConverter previewConverter;  // decode thread only
     std::vector<uint8_t> previewScratch;
 
+    // Negotiation (R5): connection thread writes caps/link, housekeeping renegotiates.
+    std::mutex choiceMutex;
+    PhoneCaps caps;
+    double linkMbps = 0;
+    Choice current;
+    Choice pending;
+    uint64_t pendingSinceNs = 0;
+    bool configured = false;
+
     // Counters
     std::atomic<uint64_t> framesDecoded{0}, bytesReceived{0}, keyframeRequests{0}, reconnects{0};
     std::atomic<bool> hardwareActive{false};
@@ -172,6 +185,87 @@ struct Engine::Impl {
         ++keyframeRequests;
         log("Requesting keyframe: " + why);
         send(Type::KeyframeRequest, nullptr, 0);
+    }
+
+    // Messages that may arrive at any time, also during the handshake.
+    void absorb(const proto::Message& m) {
+        switch (m.type()) {
+            case Type::Caps: {
+                const PhoneCaps parsed = parseCaps(proto::parseJson(m).value_or(nlohmann::json::object()));
+                std::lock_guard<std::mutex> lock(choiceMutex);
+                caps = parsed;
+                log("Phone camera offers " + std::to_string(parsed.formats.size()) + " formats" +
+                    (parsed.hevc ? ", HEVC" : ""));
+                break;
+            }
+            case Type::Log:
+                log("[phone] " + std::string(m.text()));
+                break;
+            default:
+                break;
+        }
+    }
+
+    Want currentWant() {
+        Want w;
+        if (cfg.virtualCamera) {
+            std::lock_guard<std::mutex> lock(vcamMutex);
+            if (vcam.activeFormat(w.width, w.height, w.fps)) {
+                w.consumer = true;
+                return w;
+            }
+        }
+        // No app has the camera: only the preview (or a test sink) wants video, at the default.
+        w.consumer = (owner->previewEnabled_ && cfg.previewMaxWidth > 0) || bool(cfg.frameSink);
+        w.width = cfg.width;
+        w.height = cfg.height;
+        w.fps = cfg.fps;
+        return w;
+    }
+
+    // Sends CONFIGURE for `c` and updates status. Caller holds no locks.
+    void applyChoice(const Choice& c) {
+        {
+            std::lock_guard<std::mutex> lock(choiceMutex);
+            current = c;
+            pending = c;
+            configured = true;
+        }
+        sendJson(Type::Configure, c.toConfigure());
+        log("Video: " + c.describe());
+        {
+            std::lock_guard<std::mutex> lock(statusMutex);
+            st.videoConfig = c.describe();
+        }
+        if (!c.enabled) {
+            setState(EngineState::Idle, "Connected", "Video starts when an app opens Cabled Camera.");
+        } else if (state == EngineState::Idle) {
+            setState(EngineState::Connecting, "Starting video", "");
+        }
+    }
+
+    void renegotiate(uint64_t now) {
+        if (!sessionActive) return;
+        const Want want = currentWant();
+        Choice next, cur;
+        bool ready = false;
+        {
+            std::lock_guard<std::mutex> lock(choiceMutex);
+            if (!configured) return;
+            next = negotiate(caps, want, linkMbps);
+            cur = current;
+            if (next == cur) {
+                pending = cur;
+                return;
+            }
+            if (!(next == pending)) {  // a new wish: wait for it to settle (apps open/close in bursts)
+                pending = next;
+                pendingSinceNs = now;
+                return;
+            }
+            ready = now - pendingSinceNs >= 700'000'000ull;
+        }
+        if (ready) applyChoice(next);
     }
 
     std::optional<net::Socket> connect();
@@ -251,7 +345,8 @@ void Engine::Impl::connectionLoop() {
         runSession(*s);
         if (!running) break;
         ++reconnects;
-        sleepFor(cfg.retrySeconds);
+        // After an error, leave its message up long enough to read before retrying.
+        sleepFor(state == EngineState::Error ? 5.0 : cfg.retrySeconds);
     }
 }
 
@@ -282,11 +377,18 @@ void Engine::Impl::runSession(net::Socket& s) {
     if (!sendJson(Type::Hello, hello)) return;
     proto::Message m;
     std::string err;
+    {
+        std::lock_guard<std::mutex> lock(choiceMutex);
+        caps = PhoneCaps{};
+        configured = false;
+        linkMbps = 0;
+    }
     do {
         if (!proto::readMessage(s, m, &err)) {
             log("No HELLO from the phone: " + err);
             return;
         }
+        if (m.type() != Type::Hello) absorb(m);
     } while (m.type() != Type::Hello);
     const auto peer = proto::parseJson(m).value_or(nlohmann::json::object());
     const std::string peerVersion = peer.value("protocol", "");
@@ -311,6 +413,7 @@ void Engine::Impl::runSession(net::Socket& s) {
         if (!send(Type::Ping, ping.data(), ping.size())) return;
         do {
             if (!proto::readMessage(s, m, &err)) return;
+            if (m.type() != Type::Pong) absorb(m);
         } while (m.type() != Type::Pong);
         if (auto pong = proto::decodePong(m)) {
             const uint64_t rtt = proto::nowNs() - pong->pcTimeNs;
@@ -319,6 +422,39 @@ void Engine::Impl::runSession(net::Socket& s) {
                 clockOffsetNs = int64_t(pong->phoneTimeNs) - int64_t(pong->pcTimeNs + rtt / 2);
             }
         }
+    }
+
+    // Link probe: half a second of phone -> PC data, so negotiation knows the budget (R5).
+    {
+        const double probeSeconds = 0.5;
+        const nlohmann::json request = {{"direction", "down"}, {"seconds", probeSeconds}, {"chunk", 65536}};
+        if (!sendJson(Type::ProbeRequest, request)) return;
+        uint64_t bytes = 0, firstNs = 0, lastNs = 0;
+        while (true) {
+            if (!proto::readMessage(s, m, &err)) return;
+            if (m.type() == Type::ProbeData) {
+                const uint64_t now = proto::nowNs();
+                if (!firstNs) firstNs = now;
+                else bytes += m.payload.size() + proto::kHeaderSize;  // first chunk only starts the clock
+                lastNs = now;
+            } else if (m.type() == Type::ProbeEnd) {
+                break;
+            } else {
+                absorb(m);
+            }
+        }
+        const double seconds = firstNs && lastNs > firstNs ? double(lastNs - firstNs) / 1e9 : 0;
+        const double mbps = seconds > 0 ? double(bytes) * 8 / seconds / 1e6 : 0;
+        sendJson(Type::ProbeResult, {{"direction", "down"}, {"bytes", bytes}, {"seconds", seconds}, {"mbps", mbps}});
+        {
+            std::lock_guard<std::mutex> lock(choiceMutex);
+            linkMbps = mbps;
+        }
+        {
+            std::lock_guard<std::mutex> lock(statusMutex);
+            st.linkMbps = mbps;
+        }
+        log("Link: " + std::to_string(int(mbps)) + " Mbit/s phone -> PC");
     }
 
     Decoder decoder;
@@ -338,13 +474,14 @@ void Engine::Impl::runSession(net::Socket& s) {
     sessionActive = true;
     std::thread decodeThread([&] { decodeLoop(decoder); });
 
-    sendJson(Type::Configure, {{"enabled", true},
-                               {"codec", "h264"},
-                               {"width", cfg.width},
-                               {"height", cfg.height},
-                               {"fps", cfg.fps},
-                               {"bitrate", cfg.bitrate},
-                               {"keyframeInterval", 2.0}});
+    {
+        Choice first;
+        {
+            std::lock_guard<std::mutex> lock(choiceMutex);
+            first = negotiate(caps, currentWant(), linkMbps);
+        }
+        applyChoice(first);
+    }
     s.setRecvTimeout(0);  // the housekeeping watchdog handles silence
 
     std::string endReason = "connection closed";
@@ -359,7 +496,7 @@ void Engine::Impl::runSession(net::Socket& s) {
         switch (m.type()) {
             case Type::Video: {
                 auto v = video::parsePayload(m.payload.data(), m.payload.size());
-                if (!v || v->header.codec != video::Codec::H264) break;
+                if (!v || (v->header.codec != video::Codec::H264 && v->header.codec != video::Codec::HEVC)) break;
                 bytesReceived += m.payload.size();
                 const uint32_t seq = v->header.frameSeq;
                 const bool keyframe = (v->header.flags & video::kKeyframe) != 0;
@@ -377,6 +514,7 @@ void Engine::Impl::runSession(net::Socket& s) {
                     break;
                 }
                 p.seq = seq;
+                p.hevc = v->header.codec == video::Codec::HEVC;
                 p.captureNs = uint64_t(int64_t(v->header.ptsNs) - clockOffsetNs.load());
                 bool overflow = false;
                 {
@@ -436,7 +574,8 @@ void Engine::Impl::runSession(net::Socket& s) {
                 }
                 break;
             case Type::Log:
-                log("[phone] " + std::string(m.text()));
+            case Type::Caps:
+                absorb(m);
                 break;
             case Type::Bye:
                 endReason = "phone said goodbye: " + std::string(m.text());
@@ -481,7 +620,15 @@ void Engine::Impl::decodeLoop(Decoder& decoder) {
             p = std::move(queue.front());
             queue.pop_front();
         }
-        if (p.flushFirst) decoder.flush();
+        if (p.hevc != decoder.isHevc()) {  // negotiation switched codecs
+            if (!decoder.open(cfg.hardwareDecode, &err, p.hevc)) {
+                log("Decoder for " + std::string(p.hevc ? "HEVC" : "H.264") + " failed: " + err);
+                continue;
+            }
+            log(std::string("Decoder switched to ") + (p.hevc ? "HEVC" : "H.264"));
+        } else if (p.flushFirst) {
+            decoder.flush();
+        }
         const uint64_t t0 = proto::nowNs();
         const bool ok =
             decoder.decode(p.annexB.data(), p.annexB.size(), p.seq, [&](const AVFrame* f) { onFrame(f, p, t0); }, &err);
@@ -505,7 +652,7 @@ void Engine::Impl::onFrame(const AVFrame* f, const Packet& p, uint64_t decodeSta
         decodeMsEma = decodeMsEma == 0 ? decodeMs : decodeMsEma * 0.9 + decodeMs * 0.1;
         latencyMsEma = latencyMsEma == 0 ? latencyMs : latencyMsEma * 0.9 + latencyMs * 0.1;
     }
-    if (state != EngineState::Streaming) setState(EngineState::Streaming, "Streaming", "");
+    if (state != EngineState::Streaming && state != EngineState::Idle) setState(EngineState::Streaming, "Streaming", "");
 
     if (cfg.frameSink) cfg.frameSink(f, p.seq);
 
@@ -585,6 +732,7 @@ void Engine::Impl::housekeepingLoop() {
             }
         }
 
+        renegotiate(now);
         if (cfg.virtualCamera) publishStatusCard();
 
         if (now - lastStatsNs >= 1'000'000'000ull) {

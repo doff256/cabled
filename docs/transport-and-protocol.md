@@ -96,7 +96,10 @@ u8[]                AVCC length-prefixed NAL units; parameter sets (SPS/PPS/VPS)
 | 0x0022 | CONFIGURED (R3) | JSON `{ok, enabled, codec, width, height, fps, bitrate}` with what was **actually applied**, or `{ok:false, error}` |
 | 0x0030 | VIDEO (R3) | binary: 16-byte header (`u64 ptsNs, u32 frameSeq, u8 codec, u8 flags, u16 metaLength`) + metadata + **AVCC** NAL units (4-byte **big-endian** lengths, as VideoToolbox emits). SPS/PPS in-band on every keyframe. Flags: bit0 keyframe, bit1 config changed, bit2 discontinuity |
 | 0x0031 | KEYFRAME_REQUEST (R3) | empty. PC → phone after a gap or decode error. The PC drops frames until the next keyframe |
-| 0x0020, 0x0040–0x0042 | CAPS, CONTROL_SET, CONTROL_STATE, STATS | Reserved, defined in later runs |
+| 0x0020 | CAPS (R5) | JSON phone → PC right after HELLO: `{camera, codecs: ["h264","hevc"], formats: [{width, height, minFps, maxFps, binned}]}`. Rear main camera, 420v, ≥ 1280 wide. Lenses come in R6 |
+| 0x0040–0x0042 | CONTROL_SET, CONTROL_STATE, STATS | Reserved, defined in later runs |
+
+> **R5 session start:** HELLO ⇄ HELLO, CAPS, 8 pings (clock), a **0.5 s PROBE (down)** to measure the link, then CONFIGURE from the negotiator (`windows/src/engine/negotiator.*`). The PC re-sends CONFIGURE when the consuming app changes format (debounced 0.7 s), and sends `{enabled:false}` when nobody is watching (no app on the camera, no preview). The phone then stops its camera. VIDEO's codec byte is 2 for HEVC.
 
 > **R3 note:** the Windows side and the fake phone implement CONFIGURE/CONFIGURED/VIDEO/KEYFRAME_REQUEST first. The iPhone app gains them in R3's iPhone half. The version stays **0.1** because these are pure additions (unknown types are ignored), so the R1 companion and probe keep working together. The framing is unchanged and still byte-identical on both platforms.
 

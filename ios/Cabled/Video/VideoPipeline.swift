@@ -9,12 +9,14 @@ final class VideoPipeline: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         var height: Int32 = 1080
         var fps: Double = 30
         var bitrate: Int = 25_000_000
+        var hevc = false
     }
 
     struct Applied {
         var width: Int32
         var height: Int32
         var fps: Double
+        var hevc: Bool
         var lowLatencyRateControl: Bool
     }
 
@@ -28,10 +30,15 @@ final class VideoPipeline: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
 
     private let session = AVCaptureSession()
     private let queue = DispatchQueue(label: "cabled.camera", qos: .userInteractive)
-    private var encoder: H264Encoder?
+    private var encoder: VideoEncoder?
     private let onEncoded: EncodedHandler
     private let onStatus: StatusHandler
     private var observers: [NSObjectProtocol] = []
+    // Bitrate adaptation (camera queue): cut on stalls, creep back up when the link is healthy.
+    private var targetBitrate = 25_000_000
+    private var currentBitrate = 25_000_000
+    private var lastStall = Date.distantPast
+    private var recoveryTimer: DispatchSourceTimer?
 
     init(onEncoded: @escaping EncodedHandler, onStatus: @escaping StatusHandler) {
         self.onEncoded = onEncoded
@@ -80,18 +87,55 @@ final class VideoPipeline: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         }
         session.commitConfiguration()
 
-        let encoder = try H264Encoder(width: width, height: height, fps: settings.fps, bitrate: settings.bitrate) {
-            [weak self] avcc, keyframe, ptsNs in
-            self?.onEncoded(avcc, keyframe, ptsNs)
+        let deliver: VideoEncoder.Output = { [weak self] data, keyframe, ptsNs in self?.onEncoded(data, keyframe, ptsNs) }
+        let encoder: VideoEncoder
+        if settings.hevc, let hevcEncoder = try? VideoEncoder(hevc: true, width: width, height: height,
+                                                               fps: settings.fps, bitrate: settings.bitrate,
+                                                               output: deliver) {
+            encoder = hevcEncoder
+        } else {  // H.264 asked for, or HEVC wouldn't start
+            encoder = try VideoEncoder(hevc: false, width: width, height: height, fps: settings.fps,
+                                       bitrate: settings.bitrate, output: deliver)
         }
-        queue.sync { self.encoder = encoder }
+        queue.sync {
+            self.encoder = encoder
+            self.targetBitrate = settings.bitrate
+            self.currentBitrate = settings.bitrate
+        }
+        startRecoveryTimer()
         observeInterruptions()
         session.startRunning()
-        return Applied(width: width, height: height, fps: settings.fps,
+        return Applied(width: width, height: height, fps: settings.fps, hevc: encoder.hevc,
                        lowLatencyRateControl: encoder.lowLatencyRateControl)
     }
 
+    /// The link couldn't keep up (send queue overflowed): drop the bitrate by a quarter, down to a
+    /// quarter of the target, and start over from a keyframe.
+    func linkStalled() {
+        queue.async {
+            self.lastStall = Date()
+            self.currentBitrate = max(self.targetBitrate / 4, self.currentBitrate * 3 / 4)
+            self.encoder?.setBitrate(self.currentBitrate)
+            self.encoder?.requestKeyframe()
+        }
+    }
+
+    private func startRecoveryTimer() {
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + 2, repeating: 2)
+        timer.setEventHandler { [weak self] in
+            guard let self, self.currentBitrate < self.targetBitrate,
+                  Date().timeIntervalSince(self.lastStall) > 2 else { return }
+            self.currentBitrate = min(self.targetBitrate, self.currentBitrate + max(self.currentBitrate / 20, 250_000))
+            self.encoder?.setBitrate(self.currentBitrate)
+        }
+        timer.resume()
+        recoveryTimer = timer
+    }
+
     func stop() {
+        recoveryTimer?.cancel()
+        recoveryTimer = nil
         for o in observers { NotificationCenter.default.removeObserver(o) }
         observers.removeAll()
         if session.isRunning { session.stopRunning() }
@@ -111,6 +155,33 @@ final class VideoPipeline: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                        from connection: AVCaptureConnection) {
         guard let encoder, let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         encoder.encode(pixelBuffer, pts: CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
+    }
+
+    // MARK: Capabilities (CAPS, R5)
+
+    /// The rear main camera's 420v formats (≥ 1280 wide), deduplicated, for the PC's negotiator.
+    static func capabilities() -> [String: Any] {
+        var formats: [[String: Any]] = []
+        if let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) {
+            var seen: [String: Int] = [:]  // key -> index in formats
+            for format in device.formats {
+                guard CMFormatDescriptionGetMediaSubType(format.formatDescription)
+                        == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange else { continue }
+                let d = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+                guard d.width >= 1280 else { continue }
+                let maxFps = format.videoSupportedFrameRateRanges.map(\.maxFrameRate).max() ?? 30
+                let minFps = format.videoSupportedFrameRateRanges.map(\.minFrameRate).min() ?? 1
+                let key = "\(d.width)x\(d.height)/\(format.isVideoBinned)"
+                if let i = seen[key] {
+                    if maxFps > (formats[i]["maxFps"] as? Double ?? 0) { formats[i]["maxFps"] = maxFps }
+                    continue
+                }
+                seen[key] = formats.count
+                formats.append(["width": Int(d.width), "height": Int(d.height), "minFps": minFps,
+                                "maxFps": maxFps, "binned": format.isVideoBinned])
+            }
+        }
+        return ["camera": "back-wide", "codecs": ["h264", "hevc"], "formats": formats]
     }
 
     // MARK: Helpers

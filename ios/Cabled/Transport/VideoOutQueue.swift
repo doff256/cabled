@@ -12,11 +12,19 @@ final class VideoOutQueue {
     private var seq: UInt32 = 0
     private let send: ([UInt8]) -> Bool
     private let onStall: () -> Void
+    private var codec = VideoMessage.codecH264
     private static let maxPending = 2
 
     init(send: @escaping ([UInt8]) -> Bool, onStall: @escaping () -> Void) {
         self.send = send
         self.onStall = onStall
+    }
+
+    /// Set once the encoder is known (it may fall back from HEVC to H.264).
+    func setCodec(hevc: Bool) {
+        condition.lock()
+        codec = hevc ? VideoMessage.codecHEVC : VideoMessage.codecH264
+        condition.unlock()
     }
 
     func start() {
@@ -55,7 +63,8 @@ final class VideoOutQueue {
         }
         if keyframe { droppingUntilKeyframe = false }
         pending.append(VideoMessage.message(ptsNs: ptsNs, frameSeq: seq,
-                                            flags: keyframe ? VideoMessage.flagKeyframe : 0, avcc: avcc))
+                                            flags: keyframe ? VideoMessage.flagKeyframe : 0, avcc: avcc,
+                                            codec: codec))
         condition.signal()
     }
 

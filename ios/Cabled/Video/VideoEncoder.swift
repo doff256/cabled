@@ -2,11 +2,12 @@ import CoreMedia
 import Foundation
 import VideoToolbox
 
-/// Hardware H.264 encoder (docs/ios-companion.md, Encoder settings): real time, no frame reordering,
-/// low-latency rate control where available, keyframe every 2 s and on request. Output is AVCC
-/// (4-byte big-endian NAL lengths) with SPS/PPS prepended on every keyframe.
-final class H264Encoder {
-    typealias Output = (_ avcc: [UInt8], _ keyframe: Bool, _ ptsNs: UInt64) -> Void
+/// Hardware H.264 / HEVC encoder (docs/ios-companion.md, Encoder settings): real time, no frame
+/// reordering, low-latency rate control where available, keyframe every 2 s and on request, live
+/// bitrate changes (R5 adaptation). Output is AVCC/HVCC-style: 4-byte big-endian NAL lengths, with
+/// the parameter sets (VPS/SPS/PPS) prepended on every keyframe.
+final class VideoEncoder {
+    typealias Output = (_ data: [UInt8], _ keyframe: Bool, _ ptsNs: UInt64) -> Void
 
     struct EncoderError: Error, CustomStringConvertible {
         let what: String
@@ -14,55 +15,67 @@ final class H264Encoder {
         var description: String { "\(what) failed (\(status))" }
     }
 
+    let hevc: Bool
     private var session: VTCompressionSession?
     private let output: Output
     private let lock = NSLock()
     private var forceKeyframe = true  // the first frame is always a keyframe
     private(set) var lowLatencyRateControl = false
 
-    init(width: Int32, height: Int32, fps: Double, bitrate: Int, output: @escaping Output) throws {
+    init(hevc: Bool, width: Int32, height: Int32, fps: Double, bitrate: Int, output: @escaping Output) throws {
+        self.hevc = hevc
         self.output = output
+        let codec = hevc ? kCMVideoCodecType_HEVC : kCMVideoCodecType_H264
 
         var created: VTCompressionSession?
         let lowLatency = [kVTVideoEncoderSpecification_EnableLowLatencyRateControl as String: true] as CFDictionary
         var status = VTCompressionSessionCreate(allocator: kCFAllocatorDefault, width: width, height: height,
-                                                codecType: kCMVideoCodecType_H264, encoderSpecification: lowLatency,
+                                                codecType: codec, encoderSpecification: lowLatency,
                                                 imageBufferAttributes: nil, compressedDataAllocator: nil,
                                                 outputCallback: nil, refcon: nil, compressionSessionOut: &created)
         if status == noErr {
             lowLatencyRateControl = true
         } else {
-            // Fall back to the default encoder (hardware on every iPhone; still real time, no reordering).
-            // RequireHardwareAcceleratedVideoEncoder would need iOS 17.4; our minimum is 17.0.
+            // Default encoder: hardware on every iPhone; still real time, no reordering.
+            // (RequireHardwareAcceleratedVideoEncoder would need iOS 17.4; our minimum is 17.0.)
             status = VTCompressionSessionCreate(allocator: kCFAllocatorDefault, width: width, height: height,
-                                                codecType: kCMVideoCodecType_H264, encoderSpecification: nil,
+                                                codecType: codec, encoderSpecification: nil,
                                                 imageBufferAttributes: nil, compressedDataAllocator: nil,
                                                 outputCallback: nil, refcon: nil, compressionSessionOut: &created)
         }
         guard status == noErr, let session = created else {
-            throw EncoderError(what: "VTCompressionSessionCreate", status: status)
+            throw EncoderError(what: "VTCompressionSessionCreate(\(hevc ? "HEVC" : "H.264"))", status: status)
         }
         self.session = session
 
-        func set(_ key: CFString, _ value: CFTypeRef) {
-            let s = VTSessionSetProperty(session, key: key, value: value)
-            if s != noErr { NSLog("Cabled: encoder property %@ not accepted (%d)", key as String, s) }
-        }
         set(kVTCompressionPropertyKey_RealTime, kCFBooleanTrue)
         set(kVTCompressionPropertyKey_AllowFrameReordering, kCFBooleanFalse)
-        set(kVTCompressionPropertyKey_ProfileLevel, kVTProfileLevel_H264_High_AutoLevel)
-        set(kVTCompressionPropertyKey_AverageBitRate, NSNumber(value: bitrate))
-        set(kVTCompressionPropertyKey_DataRateLimits, [NSNumber(value: Double(bitrate) * 1.5 / 8.0), NSNumber(value: 1.0)] as CFArray)
+        set(kVTCompressionPropertyKey_ProfileLevel,
+            hevc ? kVTProfileLevel_HEVC_Main_AutoLevel : kVTProfileLevel_H264_High_AutoLevel)
         set(kVTCompressionPropertyKey_ExpectedFrameRate, NSNumber(value: fps))
         set(kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, NSNumber(value: 2.0))
         // Tag the stream BT.709 like the capture (docs/video-pipeline.md, Colour).
         set(kVTCompressionPropertyKey_ColorPrimaries, kCVImageBufferColorPrimaries_ITU_R_709_2)
         set(kVTCompressionPropertyKey_TransferFunction, kCVImageBufferTransferFunction_ITU_R_709_2)
         set(kVTCompressionPropertyKey_YCbCrMatrix, kCVImageBufferYCbCrMatrix_ITU_R_709_2)
+        setBitrate(bitrate)
         VTCompressionSessionPrepareToEncodeFrames(session)
     }
 
     deinit { invalidate() }
+
+    private func set(_ key: CFString, _ value: CFTypeRef) {
+        guard let session else { return }
+        let s = VTSessionSetProperty(session, key: key, value: value)
+        if s != noErr { NSLog("Cabled: encoder property %@ not accepted (%d)", key as String, s) }
+    }
+
+    /// Takes effect within a few frames.
+    func setBitrate(_ bitrate: Int) {
+        set(kVTCompressionPropertyKey_AverageBitRate, NSNumber(value: bitrate))
+        set(kVTCompressionPropertyKey_DataRateLimits,
+            [NSNumber(value: Double(bitrate) * 1.5 / 8.0), NSNumber(value: 1.0)] as CFArray)
+    }
 
     func requestKeyframe() {
         lock.lock()
@@ -103,41 +116,60 @@ final class H264Encoder {
         }
         guard let block = CMSampleBufferGetDataBuffer(sampleBuffer) else { return }
 
-        var avcc: [UInt8] = []
+        var data: [UInt8] = []
         if keyframe, let format = CMSampleBufferGetFormatDescription(sampleBuffer) {
-            avcc += Self.parameterSets(format)
+            data += hevc ? Self.hevcParameterSets(format) : Self.h264ParameterSets(format)
         }
         let length = CMBlockBufferGetDataLength(block)
-        let start = avcc.count
-        avcc += [UInt8](repeating: 0, count: length)
-        let copied = avcc.withUnsafeMutableBytes { raw in
+        let start = data.count
+        data += [UInt8](repeating: 0, count: length)
+        let copied = data.withUnsafeMutableBytes { raw in
             CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: length, destination: raw.baseAddress! + start)
         }
         guard copied == kCMBlockBufferNoErr else { return }
-        output(avcc, keyframe, ptsNs)
+        output(data, keyframe, ptsNs)
     }
 
-    /// SPS and PPS as AVCC NAL units (4-byte big-endian length + bytes).
-    private static func parameterSets(_ format: CMFormatDescription) -> [UInt8] {
+    private static func lengthPrefixed(_ pointer: UnsafePointer<UInt8>, _ size: Int) -> [UInt8] {
+        let n = UInt32(size)
+        return [UInt8(n >> 24), UInt8((n >> 16) & 0xFF), UInt8((n >> 8) & 0xFF), UInt8(n & 0xFF)]
+            + Array(UnsafeBufferPointer(start: pointer, count: size))
+    }
+
+    private static func h264ParameterSets(_ format: CMFormatDescription) -> [UInt8] {
         var count = 0
-        var headerLength: Int32 = 0
         guard CMVideoFormatDescriptionGetH264ParameterSetAtIndex(format, parameterSetIndex: 0, parameterSetPointerOut: nil,
                                                                  parameterSetSizeOut: nil, parameterSetCountOut: &count,
-                                                                 nalUnitHeaderLengthOut: &headerLength) == noErr else {
-            return []
-        }
+                                                                 nalUnitHeaderLengthOut: nil) == noErr else { return [] }
         var out: [UInt8] = []
         for index in 0..<count {
             var pointer: UnsafePointer<UInt8>?
             var size = 0
-            guard CMVideoFormatDescriptionGetH264ParameterSetAtIndex(format, parameterSetIndex: index,
-                                                                     parameterSetPointerOut: &pointer,
-                                                                     parameterSetSizeOut: &size, parameterSetCountOut: nil,
-                                                                     nalUnitHeaderLengthOut: nil) == noErr,
-                  let pointer else { continue }
-            let n = UInt32(size)
-            out += [UInt8(n >> 24), UInt8((n >> 16) & 0xFF), UInt8((n >> 8) & 0xFF), UInt8(n & 0xFF)]
-            out += UnsafeBufferPointer(start: pointer, count: size)
+            if CMVideoFormatDescriptionGetH264ParameterSetAtIndex(format, parameterSetIndex: index,
+                                                                  parameterSetPointerOut: &pointer, parameterSetSizeOut: &size,
+                                                                  parameterSetCountOut: nil, nalUnitHeaderLengthOut: nil) == noErr,
+               let pointer {
+                out += lengthPrefixed(pointer, size)
+            }
+        }
+        return out
+    }
+
+    private static func hevcParameterSets(_ format: CMFormatDescription) -> [UInt8] {
+        var count = 0
+        guard CMVideoFormatDescriptionGetHEVCParameterSetAtIndex(format, parameterSetIndex: 0, parameterSetPointerOut: nil,
+                                                                 parameterSetSizeOut: nil, parameterSetCountOut: &count,
+                                                                 nalUnitHeaderLengthOut: nil) == noErr else { return [] }
+        var out: [UInt8] = []
+        for index in 0..<count {
+            var pointer: UnsafePointer<UInt8>?
+            var size = 0
+            if CMVideoFormatDescriptionGetHEVCParameterSetAtIndex(format, parameterSetIndex: index,
+                                                                  parameterSetPointerOut: &pointer, parameterSetSizeOut: &size,
+                                                                  parameterSetCountOut: nil, nalUnitHeaderLengthOut: nil) == noErr,
+               let pointer {
+                out += lengthPrefixed(pointer, size)
+            }
         }
         return out
     }

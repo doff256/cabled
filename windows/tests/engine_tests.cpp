@@ -250,7 +250,7 @@ TEST(Engine, ReportsRefusedConfigure) {
     Recorder rec;
     engine::Engine e(configFor(phone, rec));
     e.start();
-    std::this_thread::sleep_for(800ms);
+    std::this_thread::sleep_for(1500ms);  // handshake + 0.5 s link probe + CONFIGURE
     const auto s = e.status();
     e.stop();
     EXPECT_EQ(s.state, engine::EngineState::Error);
@@ -276,6 +276,57 @@ TEST(Engine, WaitsWhileNobodyAnswers) {
     EXPECT_EQ(e.status().state, engine::EngineState::WaitingForCompanion);
     e.stop();
     EXPECT_EQ(e.status().state, engine::EngineState::Stopped);
+}
+
+// R5: CAPS + link probe feed the first CONFIGURE.
+TEST(Engine, NegotiatesFromCapsAndProbe) {
+    auto phoneOptions = phoneWithClip();
+    std::mutex m;
+    std::vector<nlohmann::json> configures;
+    phoneOptions.onConfigure = [&](const nlohmann::json& j) {
+        std::lock_guard<std::mutex> lock(m);
+        configures.push_back(j);
+    };
+    FakePhoneServer phone(phoneOptions);
+    Recorder rec;
+    engine::Engine e(configFor(phone, rec));
+    runFor(e, rec, 2.0);
+    const auto s = e.status();
+    std::lock_guard<std::mutex> lock(m);
+    ASSERT_FALSE(configures.empty());
+    EXPECT_TRUE(configures[0].value("enabled", false));
+    EXPECT_EQ(configures[0].value("width", 0), 1920);
+    EXPECT_EQ(configures[0].value("height", 0), 1080);
+    EXPECT_EQ(configures[0].value("codec", ""), "h264");  // loopback link is far faster than needed
+    EXPECT_GT(s.linkMbps, 100.0);
+    EXPECT_NE(s.videoConfig.find("1920x1080"), std::string::npos) << s.videoConfig;
+    EXPECT_GE(rec.frames(), 20u);
+}
+
+// R5: nobody watching (no camera app, no preview) -> ask the phone to stop video.
+TEST(Engine, TurnsVideoOffWhenNobodyWatches) {
+    auto phoneOptions = phoneWithClip();
+    std::mutex m;
+    std::vector<nlohmann::json> configures;
+    phoneOptions.onConfigure = [&](const nlohmann::json& j) {
+        std::lock_guard<std::mutex> lock(m);
+        configures.push_back(j);
+    };
+    FakePhoneServer phone(phoneOptions);
+    engine::EngineConfig c;
+    c.tcpTarget = phone.target();
+    c.virtualCamera = false;
+    c.previewMaxWidth = 0;  // no preview, no sink
+    engine::Engine e(c);
+    e.start();
+    std::this_thread::sleep_for(1500ms);
+    const auto s = e.status();
+    e.stop();
+    std::lock_guard<std::mutex> lock(m);
+    ASSERT_FALSE(configures.empty());
+    EXPECT_FALSE(configures[0].value("enabled", true));
+    EXPECT_EQ(s.state, engine::EngineState::Idle);
+    EXPECT_EQ(e.status().framesDecoded, 0u);
 }
 
 TEST(StatusCard, RendersReadableText) {

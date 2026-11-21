@@ -7,12 +7,14 @@
 namespace cabled::vcam {
 
 const std::vector<AdvertisedFormat>& AdvertisedFormats() {
-    // R2 spike list: wide enough to see what each app picks. NV12 1080p30 first: the safe default.
+    // NV12 1080p30 first: the safe default. No SD sizes (R5): with no constraints Chromium asks for
+    // 640x480 and takes the closest format, which is now 1280x720 instead of an SD one. 4K60 and
+    // 1440p for OBS/browsers that ask for them (R-51); the engine negotiates the phone to match.
     static const std::vector<AdvertisedFormat> kFormats = {
         {MFVideoFormat_NV12, 1920, 1080, 30}, {MFVideoFormat_NV12, 1280, 720, 30},
         {MFVideoFormat_NV12, 1920, 1080, 60}, {MFVideoFormat_NV12, 1280, 720, 60},
-        {MFVideoFormat_NV12, 3840, 2160, 30}, {MFVideoFormat_NV12, 640, 480, 30},
-        {MFVideoFormat_NV12, 640, 360, 30},   {MFVideoFormat_YUY2, 1920, 1080, 30},
+        {MFVideoFormat_NV12, 3840, 2160, 30}, {MFVideoFormat_NV12, 3840, 2160, 60},
+        {MFVideoFormat_NV12, 2560, 1440, 30}, {MFVideoFormat_YUY2, 1920, 1080, 30},
         {MFVideoFormat_YUY2, 1280, 720, 30},  {MFVideoFormat_RGB32, 1280, 720, 30},
     };
     return kFormats;

@@ -48,6 +48,13 @@ bool VcamOutput::activeSize(uint32_t& width, uint32_t& height) {
     return width > 0 && height > 0;
 }
 
+bool VcamOutput::activeFormat(uint32_t& width, uint32_t& height, double& fps) {
+    if (!activeSize(width, height)) return false;
+    const vcam::Header* h = ring_.header();
+    fps = h->activeFpsDen > 0 ? double(h->activeFpsNum) / double(h->activeFpsDen) : 30.0;
+    return true;
+}
+
 VcamOutput::State VcamOutput::publishBgra(const uint8_t* bgra, uint32_t width, uint32_t height, uint32_t stride,
                                           int64_t captureQpc) {
     const State s = state();

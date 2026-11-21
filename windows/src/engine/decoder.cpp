@@ -37,11 +37,12 @@ void Decoder::close() {
     hardwareFrames_ = false;
 }
 
-bool Decoder::open(bool preferHardware, std::string* error) {
+bool Decoder::open(bool preferHardware, std::string* error, bool hevc) {
     close();
-    const AVCodec* codec = avcodec_find_decoder(AV_CODEC_ID_H264);
+    hevc_ = hevc;
+    const AVCodec* codec = avcodec_find_decoder(hevc ? AV_CODEC_ID_HEVC : AV_CODEC_ID_H264);
     if (!codec) {
-        if (error) *error = "this FFmpeg build has no H.264 decoder";
+        if (error) *error = std::string("this FFmpeg build has no ") + (hevc ? "HEVC" : "H.264") + " decoder";
         return false;
     }
     ctx_ = avcodec_alloc_context3(codec);

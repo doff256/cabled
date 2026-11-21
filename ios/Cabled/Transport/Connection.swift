@@ -63,6 +63,7 @@ final class Connection {
         context.emit(.connected)
 
         guard send(.hello, json: context.hello) else { return }
+        _ = send(.caps, json: VideoPipeline.capabilities())
         _ = send(.status, json: context.status())
         log("Companion ready (protocol \(WireProtocol.versionString))")
 
@@ -122,7 +123,7 @@ final class Connection {
             return "PC ended the session"
         case .error:
             log("PC error: \(message.text)")
-        case .pong, .log, .status, .configured, .video:
+        case .pong, .log, .status, .configured, .video, .caps:
             break
         }
         return nil
@@ -143,6 +144,7 @@ final class Connection {
         if let h = request["height"] as? Int { settings.height = Int32(h) }
         if let fps = request["fps"] as? Double { settings.fps = fps }
         if let bitrate = request["bitrate"] as? Int { settings.bitrate = bitrate }
+        settings.hevc = (request["codec"] as? String) == "hevc"
 
         let out = VideoOutQueue(send: { [weak self] bytes in self?.sendAll(bytes) ?? false },
                                 onStall: { [weak self] in
@@ -150,8 +152,9 @@ final class Connection {
                                     self.videoLock.lock()
                                     let p = self.pipeline
                                     self.videoLock.unlock()
-                                    p?.requestKeyframe()
+                                    p?.linkStalled()  // lower the bitrate and restart from a keyframe
                                 })
+        out.setCodec(hevc: settings.hevc)
         let pipeline = VideoPipeline(
             onEncoded: { avcc, keyframe, ptsNs in out.push(avcc: avcc, keyframe: keyframe, ptsNs: ptsNs) },
             onStatus: { [weak self] status in self?.cameraStatusChanged(status) })
@@ -162,11 +165,13 @@ final class Connection {
             videoLock.unlock()
             out.start()
             let applied = try pipeline.start(settings)
-            send(.configured, json: ["ok": true, "enabled": true, "codec": "h264",
+            out.setCodec(hevc: applied.hevc)
+            send(.configured, json: ["ok": true, "enabled": true, "codec": applied.hevc ? "hevc" : "h264",
                                      "width": Int(applied.width), "height": Int(applied.height),
                                      "fps": applied.fps, "bitrate": settings.bitrate,
                                      "lowLatencyRateControl": applied.lowLatencyRateControl])
             let description = "Streaming \(applied.width)×\(applied.height) @ \(Int(applied.fps))"
+                + (applied.hevc ? " HEVC" : "")
             context.emit(.streaming(description))
             log(description + (applied.lowLatencyRateControl ? " (low-latency encoder)" : ""))
         } catch {

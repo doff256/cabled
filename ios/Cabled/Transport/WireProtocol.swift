@@ -33,6 +33,7 @@ enum MessageType: UInt16 {
     case probeData = 0x0011
     case probeEnd = 0x0012
     case probeResult = 0x0013
+    case caps = 0x0020
     case configure = 0x0021
     case configured = 0x0022
     case video = 0x0030
@@ -44,6 +45,7 @@ enum MessageType: UInt16 {
 enum VideoMessage {
     static let headerSize = 16
     static let codecH264: UInt8 = 1
+    static let codecHEVC: UInt8 = 2
     static let flagKeyframe: UInt8 = 1 << 0
     static let flagDiscontinuity: UInt8 = 1 << 2
 
@@ -59,8 +61,9 @@ enum VideoMessage {
     }
 
     /// A complete wire message (8-byte message header + VIDEO payload) in one buffer.
-    static func message(ptsNs: UInt64, frameSeq: UInt32, flags: UInt8, avcc: [UInt8]) -> [UInt8] {
-        let header = encodeHeader(ptsNs: ptsNs, frameSeq: frameSeq, codec: codecH264, flags: flags, metaLength: 0)
+    static func message(ptsNs: UInt64, frameSeq: UInt32, flags: UInt8, avcc: [UInt8],
+                        codec: UInt8 = VideoMessage.codecH264) -> [UInt8] {
+        let header = encodeHeader(ptsNs: ptsNs, frameSeq: frameSeq, codec: codec, flags: flags, metaLength: 0)
         var out = [UInt8](repeating: 0, count: WireProtocol.headerSize)
         out.reserveCapacity(WireProtocol.headerSize + headerSize + avcc.count)
         WireCodec.writeHeader(into: &out, type: .video, payloadCount: headerSize + avcc.count)
