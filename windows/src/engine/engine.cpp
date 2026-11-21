@@ -53,7 +53,14 @@ nlohmann::json EngineStatus::toJson() const {
             {"vcam", {{"state", vcam}, {"inUse", vcamInUse}}},
             {"link", {{"mbps", linkMbps}, {"config", videoConfig}}},
             {"camera", {{"current", camera}, {"zoom", zoom}, {"lens", lens}, {"list", cameras}}},
-            {"framing", {{"enabled", framing}, {"faces", faces}}},
+            {"framing", [&] {
+                 nlohmann::json f = framingInfo;
+                 f["enabled"] = framing;
+                 f["faces"] = faces;
+                 return f;
+             }()},
+            {"controls", controls},
+            {"capture", capture},
             {"phone", {{"thermal", thermal}, {"battery", battery}}}};
 }
 
@@ -191,10 +198,27 @@ struct Engine::Impl {
     bool configured = false;
     std::atomic<bool> renegotiateNow{false};  // user picked a camera: skip the debounce
 
-    // Auto-framing (R7): decode thread only, except the on/off flag.
+    // Auto-framing (R7): decode thread only, except the on/off flag and the knobs (prefsMutex).
     std::atomic<bool> framingEnabled{true};
     Framer framer;
     FramingSettings framingSettings;
+    FramingSettings framingKnobs;  // prefsMutex: tightness, speed, group as set by the user
+
+    // R8 (prefsMutex): remembered camera controls, pinned capture.
+    nlohmann::json rememberedControls = nlohmann::json::object();
+    uint32_t pinWidth = 0, pinHeight = 0;
+    double pinFps = 0;
+    // Last crop, for tap-to-focus (decode thread writes, API reads).
+    std::mutex cropMutex;
+    CropRect lastCrop;
+    uint32_t lastSrcW = 0, lastSrcH = 0;
+
+    // Overview thumbnail (whole camera view)
+    mutable std::mutex overviewMutex;
+    std::vector<uint8_t> overview, overviewScratch;
+    uint32_t overviewWidth = 0, overviewHeight = 0;
+    uint64_t overviewSeq = 0;
+    FrameConverter overviewConverter;
 
     // User preferences (R6), separate lock so currentWant() can be called under choiceMutex.
     std::mutex prefsMutex;
@@ -290,6 +314,10 @@ struct Engine::Impl {
                 if (!id.empty()) st.camera = id;
                 if (factor > 0) st.zoom = std::round(factor * scale * 100) / 100;
                 st.lens = j.value("lens", st.lens);
+                if (j.contains("thermal")) st.thermal = j.value("thermal", st.thermal);
+                for (const char* key : {"focus", "exposure", "whiteBalance"}) {  // R8 camera state
+                    if (j.contains(key)) st.controls[key] = j[key];
+                }
                 break;
             }
             case Type::Log:
@@ -319,8 +347,15 @@ struct Engine::Impl {
 
     Want withCamera(Want w) {
         w.framing = framingEnabled;
+        {
+            std::lock_guard<std::mutex> lock(statusMutex);
+            w.thermal = st.thermal;  // F7: hot phone -> lighter job
+        }
         std::lock_guard<std::mutex> lock(prefsMutex);
         w.camera = wantedCamera;
+        w.pinWidth = pinWidth;
+        w.pinHeight = pinHeight;
+        w.pinFps = pinFps;
         return w;
     }
 
@@ -339,6 +374,14 @@ struct Engine::Impl {
             configured = true;
         }
         sendJson(Type::Configure, c.toConfigure(zoomFor(c.camera)));
+        if (c.enabled) {  // focus / exposure / white balance survive restarts and camera switches
+            nlohmann::json controlsCopy;
+            {
+                std::lock_guard<std::mutex> lock(prefsMutex);
+                controlsCopy = rememberedControls;
+            }
+            if (!controlsCopy.empty()) sendJson(Type::ControlSet, controlsCopy);
+        }
         log("Video: " + c.describe() + (c.camera.empty() ? "" : " on camera " + c.camera));
         {
             std::lock_guard<std::mutex> lock(statusMutex);
@@ -776,12 +819,46 @@ void Engine::Impl::onFrame(const AVFrame* f, const Packet& p, uint64_t decodeSta
         vcam.activeFormat(outW, outH, outFps);
     }
     const std::vector<Face> faces = parseFaces(p.meta);
+    {
+        std::lock_guard<std::mutex> lock(prefsMutex);
+        framingSettings = framingKnobs;
+    }
     framingSettings.enabled = framingEnabled;
     const CropRect crop = framer.update(faces, uint32_t(f->width), uint32_t(f->height), outW, outH,
                                         double(p.captureNs) / 1e9, framingSettings);
     {
+        std::lock_guard<std::mutex> lock(cropMutex);
+        lastCrop = crop;
+        lastSrcW = uint32_t(f->width);
+        lastSrcH = uint32_t(f->height);
+    }
+    {
         std::lock_guard<std::mutex> lock(statusMutex);
         st.faces = int(faces.size());
+        st.framingInfo = {{"tightness", framingSettings.tightness()},
+                          {"speed", framingSettings.speed},
+                          {"group", framingSettings.group},
+                          {"sourceWidth", f->width},
+                          {"sourceHeight", f->height},
+                          {"crop",
+                           {{"x", crop.x / f->width},
+                            {"y", crop.y / f->height},
+                            {"w", crop.w / f->width},
+                            {"h", crop.h / f->height}}}};
+    }
+
+    // Overview: the whole camera view, small, for the box-in-box display (R8).
+    if (owner->previewEnabled_ && cfg.previewMaxWidth > 0) {
+        const uint32_t ow = 320, oh = uint32_t(320.0 * f->height / std::max(1, f->width)) & ~1u;
+        overviewScratch.resize(size_t(ow) * oh * 4);
+        if (oh && overviewConverter.convert(f, vcam::packedView(vcam::kFourccRGB32, ow, oh, overviewScratch.data()))) {
+            for (size_t i = 3; i < overviewScratch.size(); i += 4) overviewScratch[i] = 255;
+            std::lock_guard<std::mutex> lock(overviewMutex);
+            overview.swap(overviewScratch);
+            overviewWidth = ow;
+            overviewHeight = oh;
+            ++overviewSeq;
+        }
     }
 
     if (cfg.virtualCamera) {
@@ -913,6 +990,7 @@ Engine::Engine(EngineConfig config) : impl_(std::make_unique<Impl>()) {
     impl_->owner = this;
     impl_->framingEnabled = impl_->cfg.framing;
     impl_->st.framing = impl_->cfg.framing;
+    impl_->st.capture = {{"width", 0}, {"height", 0}, {"fps", 0}};
 }
 
 Engine::~Engine() { stop(); }
@@ -957,6 +1035,67 @@ void Engine::setFraming(bool enabled) {
         impl_->st.framing = enabled;
     }
     impl_->renegotiateNow = true;  // framing changes the capture size we ask for
+}
+
+void Engine::setFramingOptions(double tightness, double speed, bool group) {
+    std::lock_guard<std::mutex> lock(impl_->prefsMutex);
+    impl_->framingKnobs.setTightness(tightness);
+    impl_->framingKnobs.speed = std::clamp(speed, 0.3, 3.0);
+    impl_->framingKnobs.group = group;
+}
+
+void Engine::setControls(const nlohmann::json& controls) {
+    if (!controls.is_object()) return;
+    {
+        std::lock_guard<std::mutex> lock(impl_->prefsMutex);
+        for (auto it = controls.begin(); it != controls.end(); ++it) {
+            if (it.key() == "zoom" || it.key() == "ramp") continue;  // zoom has its own path
+            nlohmann::json v = it.value();
+            if (v.is_object()) v.erase("point");  // a tap is a one-off, not a setting to restore
+            impl_->rememberedControls[it.key()] = v;
+        }
+    }
+    impl_->sendJson(Type::ControlSet, controls);
+}
+
+void Engine::tapToFocus(double x, double y) {
+    CropRect crop;
+    uint32_t w = 0, h = 0;
+    {
+        std::lock_guard<std::mutex> lock(impl_->cropMutex);
+        crop = impl_->lastCrop;
+        w = impl_->lastSrcW;
+        h = impl_->lastSrcH;
+    }
+    if (!w || !h) return;
+    // Output picture -> whole camera frame (normalized); the phone maps it to sensor coordinates.
+    const double fx = std::clamp((crop.x + std::clamp(x, 0.0, 1.0) * crop.w) / w, 0.0, 1.0);
+    const double fy = std::clamp((crop.y + std::clamp(y, 0.0, 1.0) * crop.h) / h, 0.0, 1.0);
+    impl_->sendJson(Type::ControlSet, {{"focus", {{"point", {fx, fy}}}}, {"exposure", {{"point", {fx, fy}}}}});
+}
+
+void Engine::setCapture(uint32_t width, uint32_t height, double fps) {
+    {
+        std::lock_guard<std::mutex> lock(impl_->prefsMutex);
+        impl_->pinWidth = width;
+        impl_->pinHeight = height;
+        impl_->pinFps = fps;
+    }
+    {
+        std::lock_guard<std::mutex> lock(impl_->statusMutex);
+        impl_->st.capture = {{"width", width}, {"height", height}, {"fps", fps}};
+    }
+    impl_->renegotiateNow = true;
+}
+
+bool Engine::copyOverview(std::vector<uint8_t>& bgra, uint32_t& width, uint32_t& height, uint64_t& seq) const {
+    std::lock_guard<std::mutex> lock(impl_->overviewMutex);
+    if (impl_->overviewSeq == 0 || impl_->overviewSeq == seq) return false;
+    bgra = impl_->overview;
+    width = impl_->overviewWidth;
+    height = impl_->overviewHeight;
+    seq = impl_->overviewSeq;
+    return true;
 }
 
 void Engine::setZoom(double display, bool smooth) {

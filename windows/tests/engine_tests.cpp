@@ -399,6 +399,41 @@ TEST(Engine, AutoFramingCropsToTheFace) {
     e.stop();
 }
 
+// R8: camera controls are remembered and re-applied after a camera switch; taps become full-frame
+// focus points.
+TEST(Engine, ControlsSurviveCameraSwitchAndTapMapsToFrame) {
+    auto phoneOptions = phoneWithClip();
+    std::mutex m;
+    std::vector<nlohmann::json> controls;
+    phoneOptions.onControlSet = [&](const nlohmann::json& j) {
+        std::lock_guard<std::mutex> lock(m);
+        controls.push_back(j);
+    };
+    FakePhoneServer phone(phoneOptions);
+    Recorder rec;
+    engine::Engine e(configFor(phone, rec));
+    e.start();
+    std::this_thread::sleep_for(1500ms);
+    e.setControls({{"exposure", {{"mode", "auto"}, {"bias", 0.7}}}});
+    e.setCamera("fake-front");
+    std::this_thread::sleep_for(500ms);
+    e.tapToFocus(0.5, 0.5);
+    std::this_thread::sleep_for(300ms);
+    e.stop();
+
+    std::lock_guard<std::mutex> lock(m);
+    int exposureSets = 0;
+    for (const auto& c : controls) {
+        if (c.contains("exposure") && c["exposure"].value("bias", 0.0) == 0.7) ++exposureSets;
+    }
+    EXPECT_GE(exposureSets, 2) << "sent once by setControls, again after the camera switch";
+    ASSERT_FALSE(controls.empty());
+    const auto& tap = controls.back();
+    ASSERT_TRUE(tap.contains("focus"));
+    EXPECT_NEAR(tap["focus"]["point"][0].get<double>(), 0.5, 0.01);  // no faces: crop = whole frame
+    EXPECT_NEAR(tap["focus"]["point"][1].get<double>(), 0.5, 0.01);
+}
+
 TEST(StatusCard, RendersReadableText) {
     const auto card = engine::renderStatusCard(1280, 720, L"Open Cabled on your iPhone", L"Keep it on screen.");
     ASSERT_EQ(card.bgra.size(), size_t(1280) * 720 * 4);

@@ -101,6 +101,17 @@ final class WireProtocolTests: XCTestCase {
         XCTAssertEqual(back.minY, r.minY, accuracy: 1e-9)
     }
 
+    /// Tap points go back through the rotation to sensor coordinates.
+    func testTapPointUnrotatesBackToSensor() {
+        for angle: CGFloat in [0, 90, 180, 270] {
+            let sensor = CGRect(x: 0.2, y: 0.3, width: 0, height: 0)
+            let frame = VideoPipeline.rotate(sensor, by: angle).origin
+            let back = VideoPipeline.unrotate(frame, by: angle)
+            XCTAssertEqual(back.x, 0.2, accuracy: 1e-9, "angle \(angle)")
+            XCTAssertEqual(back.y, 0.3, accuracy: 1e-9, "angle \(angle)")
+        }
+    }
+
     func testPingPong() {
         var ping = [UInt8](repeating: 0, count: 8)
         WireCodec.writeLE64(&ping, at: 0, 123_456_789)

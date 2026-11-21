@@ -135,6 +135,31 @@ TEST(Negotiator, FramingAsksForTwiceTheOutput) {
     EXPECT_EQ(negotiate(iphoneCaps(), w, 300).width, 4032u);
 }
 
+TEST(Negotiator, PinnedCaptureOverridesAutomatic) {
+    Want w = app(1920, 1080, 30);
+    w.framing = true;  // would ask for 4K...
+    w.pinWidth = 1280;
+    w.pinHeight = 720;
+    w.pinFps = 60;
+    const Choice c = negotiate(iphoneCaps(), w, 300);
+    EXPECT_EQ(c.width, 1280u);  // ...but the user pinned 720p60
+    EXPECT_DOUBLE_EQ(c.fps, 60);
+}
+
+TEST(Negotiator, HotPhoneStepsDown) {
+    Want w = app(1920, 1080, 60);
+    w.framing = true;  // 4K60 normally
+    EXPECT_EQ(negotiate(iphoneCaps(), w, 300).width, 3840u);
+    w.thermal = "serious";
+    Choice c = negotiate(iphoneCaps(), w, 300);
+    EXPECT_EQ(c.width, 1920u);
+    EXPECT_DOUBLE_EQ(c.fps, 30);
+    w.thermal = "critical";
+    c = negotiate(iphoneCaps(), w, 300);
+    EXPECT_EQ(c.width, 1280u);
+    EXPECT_DOUBLE_EQ(c.fps, 30);
+}
+
 TEST(Negotiator, BitrateTable) {
     EXPECT_NEAR(defaultBitrate(1920, 1080, 30) / 1e6, 25, 0.5);
     EXPECT_NEAR(defaultBitrate(1280, 720, 30) / 1e6, 15, 2);

@@ -125,11 +125,14 @@ final class Connection {
             log("PC error: \(message.text)")
         case .controlSet:
             let request = WireCodec.parseJSON(message.payload) ?? [:]
+            videoLock.lock()
+            let p = pipeline
+            videoLock.unlock()
             if let zoom = request["zoom"] as? Double {
-                videoLock.lock()
-                let p = pipeline
-                videoLock.unlock()
                 p?.setZoom(zoom, rampRate: request["ramp"] as? Double ?? 0)
+            }
+            if request["focus"] != nil || request["exposure"] != nil || request["whiteBalance"] != nil {
+                p?.applyControls(request)
             }
         case .pong, .log, .status, .configured, .video, .caps, .controlState:
             break

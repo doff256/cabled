@@ -9,16 +9,20 @@
         <MicaBackdrop />
     </Window.SystemBackdrop>
 
-    <Grid Padding="16" RowSpacing="12">
+    <Grid Padding="16" RowSpacing="12" ColumnSpacing="16">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="300" />
+        </Grid.ColumnDefinitions>
 
         <!-- Status: what's happening and what to do next (windows-app.md) -->
-        <Grid Grid.Row="0" ColumnSpacing="12">
+        <Grid Grid.Row="0" Grid.ColumnSpan="2" ColumnSpacing="12">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
@@ -34,7 +38,7 @@
                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
         </Grid>
 
-        <!-- Preview: exactly what the virtual camera sends -->
+        <!-- Preview: exactly what the virtual camera sends. Click to focus there. -->
         <Border Grid.Row="1" CornerRadius="8" Background="#FF101114">
             <Grid>
                 <Image x:Name="Preview" Stretch="Uniform" />
@@ -43,6 +47,119 @@
                            Text="No video yet" />
             </Grid>
         </Border>
+
+        <!-- Side panel: framing, camera, quality (R8) -->
+        <ScrollViewer x:Name="SidePanel" Grid.Row="1" Grid.RowSpan="2" Grid.Column="1"
+                      VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
+            <StackPanel Spacing="20" Padding="0,0,12,0">
+
+                <!-- Framing -->
+                <StackPanel Spacing="8">
+                    <Grid>
+                        <TextBlock Text="Framing" Style="{StaticResource BodyStrongTextBlockStyle}" VerticalAlignment="Center" />
+                        <ToggleSwitch x:Name="FramingSwitch" HorizontalAlignment="Right" OnContent="" OffContent=""
+                                      IsOn="True" MinWidth="0" />
+                    </Grid>
+                    <!-- Box in a box: the whole camera view, with what's being sent outlined -->
+                    <Border CornerRadius="6" Background="#FF101114">
+                        <Grid x:Name="OverviewHost">
+                            <Image x:Name="OverviewImage" Stretch="Uniform" />
+                            <Canvas x:Name="OverviewCanvas">
+                                <Rectangle x:Name="CropBox" Stroke="#FF5A78C8" StrokeThickness="2" RadiusX="3" RadiusY="3"
+                                           Fill="#225A78C8" />
+                            </Canvas>
+                        </Grid>
+                    </Border>
+                    <TextBlock Text="Show more ↔ show less" Style="{StaticResource CaptionTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <Slider x:Name="TightnessSlider" Minimum="0" Maximum="100" Value="36" IsThumbToolTipEnabled="False" />
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <ComboBox x:Name="SpeedCombo" HorizontalAlignment="Stretch" SelectedIndex="1">
+                            <x:String>Calm</x:String>
+                            <x:String>Normal</x:String>
+                            <x:String>Fast</x:String>
+                        </ComboBox>
+                        <CheckBox x:Name="GroupCheck" Grid.Column="1" Content="Everyone" MinWidth="0" />
+                    </Grid>
+                </StackPanel>
+
+                <!-- Camera: focus, exposure, white balance -->
+                <StackPanel Spacing="8">
+                    <TextBlock Text="Camera" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                    <Grid>
+                        <TextBlock Text="Focus" VerticalAlignment="Center" />
+                        <ToggleSwitch x:Name="FocusAutoSwitch" HorizontalAlignment="Right" OnContent="Auto"
+                                      OffContent="Manual" IsOn="True" MinWidth="0" />
+                    </Grid>
+                    <Slider x:Name="FocusSlider" Minimum="0" Maximum="100" IsEnabled="False" IsThumbToolTipEnabled="False" />
+
+                    <Grid>
+                        <TextBlock Text="Exposure" VerticalAlignment="Center" />
+                        <ToggleSwitch x:Name="ExposureAutoSwitch" HorizontalAlignment="Right" OnContent="Auto"
+                                      OffContent="Manual" IsOn="True" MinWidth="0" />
+                    </Grid>
+                    <StackPanel x:Name="ExposureAutoPanel" Spacing="2">
+                        <TextBlock x:Name="BiasText" Style="{StaticResource CaptionTextBlockStyle}" Text="Brightness 0.0 EV" />
+                        <Slider x:Name="BiasSlider" Minimum="-30" Maximum="30" Value="0" IsThumbToolTipEnabled="False" />
+                    </StackPanel>
+                    <StackPanel x:Name="ExposureManualPanel" Spacing="2" Visibility="Collapsed">
+                        <TextBlock x:Name="IsoText" Style="{StaticResource CaptionTextBlockStyle}" Text="ISO" />
+                        <Slider x:Name="IsoSlider" Minimum="0" Maximum="1000" IsThumbToolTipEnabled="False" />
+                        <TextBlock x:Name="ShutterText" Style="{StaticResource CaptionTextBlockStyle}" Text="Shutter" />
+                        <Slider x:Name="ShutterSlider" Minimum="0" Maximum="1000" IsThumbToolTipEnabled="False" />
+                    </StackPanel>
+                    <TextBlock x:Name="ExposureLive" Style="{StaticResource CaptionTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+
+                    <Grid>
+                        <TextBlock Text="White balance" VerticalAlignment="Center" />
+                        <ToggleSwitch x:Name="WbAutoSwitch" HorizontalAlignment="Right" OnContent="Auto"
+                                      OffContent="Manual" IsOn="True" MinWidth="0" />
+                    </Grid>
+                    <StackPanel x:Name="WbManualPanel" Spacing="2" Visibility="Collapsed">
+                        <TextBlock x:Name="TempText" Style="{StaticResource CaptionTextBlockStyle}" Text="5000 K" />
+                        <Slider x:Name="TempSlider" Minimum="2500" Maximum="9000" Value="5000" StepFrequency="50"
+                                IsThumbToolTipEnabled="False" />
+                        <TextBlock x:Name="TintText" Style="{StaticResource CaptionTextBlockStyle}" Text="Tint 0" />
+                        <Slider x:Name="TintSlider" Minimum="-50" Maximum="50" Value="0" IsThumbToolTipEnabled="False" />
+                    </StackPanel>
+                    <TextBlock Text="Tip: click the preview to focus and expose there."
+                               Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                </StackPanel>
+
+                <!-- Quality: pin the capture (R-58) -->
+                <StackPanel Spacing="8">
+                    <TextBlock Text="Quality" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <ComboBox x:Name="CaptureCombo" Header="Capture" HorizontalAlignment="Stretch" SelectedIndex="0">
+                            <x:String>Auto</x:String>
+                            <x:String>720p</x:String>
+                            <x:String>1080p</x:String>
+                            <x:String>4K</x:String>
+                        </ComboBox>
+                        <ComboBox x:Name="FpsCombo" Grid.Column="1" Header="Frame rate" HorizontalAlignment="Stretch"
+                                  SelectedIndex="0">
+                            <x:String>Auto</x:String>
+                            <x:String>30</x:String>
+                            <x:String>60</x:String>
+                            <x:String>120</x:String>
+                        </ComboBox>
+                    </Grid>
+                    <TextBlock Text="Auto follows the app using the camera. A hot phone steps down by itself."
+                               Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
 
         <!-- Lens + zoom (R6) -->
         <Grid x:Name="CameraControls" Grid.Row="2" ColumnSpacing="16" Visibility="Collapsed">
@@ -64,21 +181,17 @@
                 <TextBlock x:Name="ZoomText" Grid.Column="2" MinWidth="48" VerticalAlignment="Center"
                            Style="{StaticResource BodyStrongTextBlockStyle}" Text="1.0×" />
             </Grid>
-            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
-                <TextBlock x:Name="LensText" VerticalAlignment="Center"
-                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                <ToggleSwitch x:Name="FramingSwitch" OnContent="Auto-framing" OffContent="Auto-framing"
-                              IsOn="True" MinWidth="0" />
-            </StackPanel>
+            <TextBlock x:Name="LensText" Grid.Column="2" VerticalAlignment="Center"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
         </Grid>
 
         <!-- Stats + virtual camera state -->
-        <Grid Grid.Row="3" ColumnSpacing="16">
+        <Grid Grid.Row="3" Grid.ColumnSpan="2" ColumnSpacing="16">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <TextBlock x:Name="StatsText" Style="{StaticResource CaptionTextBlockStyle}"
+            <TextBlock x:Name="StatsText" Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap"
                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
             <TextBlock x:Name="VcamText" Grid.Column="1" Style="{StaticResource CaptionTextBlockStyle}"
                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />

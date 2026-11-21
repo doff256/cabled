@@ -40,6 +40,7 @@ final class VideoPipeline: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     private let onControlState: ControlStateHandler
     private var controlTimer: DispatchSourceTimer?
     private var lastReported: (zoom: Double, lens: String) = (0, "")
+    private var lastStateJSON = ""
 
     // Rotation (R7): iOS tells us the angle that keeps the picture level; the capture hardware
     // rotates. When the frame flips between landscape and portrait the encoder is recreated.
@@ -246,21 +247,139 @@ final class VideoPipeline: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         }
     }
 
-    /// Reports zoom and the active lens to the PC when they change (also during ramps).
+    /// Reports the camera's state to the PC whenever it changes (zoom ramps, auto exposure...).
     private func startControlTimer() {
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now() + 0.1, repeating: 0.2)
         timer.setEventHandler { [weak self] in
             guard let self, let device = self.device else { return }
-            let zoom = (Double(device.videoZoomFactor) * 100).rounded() / 100
-            let lens = CameraCatalog.lensName(device)
-            if zoom != self.lastReported.zoom || lens != self.lastReported.lens {
-                self.lastReported = (zoom, lens)
-                self.onControlState(["camera": device.uniqueID, "zoom": zoom, "lens": lens])
-            }
+            let state = Self.controlState(device)
+            guard let data = try? JSONSerialization.data(withJSONObject: state, options: [.sortedKeys]),
+                  let json = String(data: data, encoding: .utf8), json != self.lastStateJSON else { return }
+            self.lastStateJSON = json
+            self.onControlState(state)
         }
         timer.resume()
         controlTimer = timer
+    }
+
+    private static func r(_ v: Double, _ places: Double = 100) -> Double { (v * places).rounded() / places }
+
+    static func controlState(_ d: AVCaptureDevice) -> [String: Any] {
+        let format = d.activeFormat
+        let shutter = CMTimeGetSeconds(d.exposureDuration)
+        let maxShutter = min(CMTimeGetSeconds(format.maxExposureDuration), CMTimeGetSeconds(d.activeVideoMaxFrameDuration))
+        let wb = d.temperatureAndTintValues(for: d.deviceWhiteBalanceGains)
+        return [
+            "camera": d.uniqueID,
+            "zoom": r(Double(d.videoZoomFactor)),
+            "lens": CameraCatalog.lensName(d),
+            "thermal": DeviceInfo.thermalStateName(ProcessInfo.processInfo.thermalState),
+            "focus": [
+                "mode": d.focusMode == .locked ? "manual" : "auto",
+                "position": r(Double(d.lensPosition)),
+                "manualSupported": d.isLockingFocusWithCustomLensPositionSupported,
+            ],
+            "exposure": [
+                "mode": d.exposureMode == .custom ? "manual" : "auto",
+                "iso": r(Double(d.iso), 1),
+                "shutter": r(shutter, 100_000),
+                "bias": r(Double(d.exposureTargetBias)),
+                "isoRange": [Double(format.minISO), Double(format.maxISO)],
+                "shutterRange": [CMTimeGetSeconds(format.minExposureDuration), maxShutter],
+                "biasRange": [Double(d.minExposureTargetBias), Double(d.maxExposureTargetBias)],
+            ],
+            "whiteBalance": [
+                "mode": d.whiteBalanceMode == .continuousAutoWhiteBalance ? "auto" : "manual",
+                "temperature": r(Double(wb.temperature), 0.01),
+                "tint": r(Double(wb.tint), 1),
+            ],
+        ]
+    }
+
+    // MARK: Focus / exposure / white balance (R8)
+
+    /// CONTROL_SET body: {focus?, exposure?, whiteBalance?}. Points are in the sent frame (0..1).
+    func applyControls(_ c: [String: Any]) {
+        queue.async {
+            guard let device = self.device, (try? device.lockForConfiguration()) != nil else { return }
+            defer { device.unlockForConfiguration() }
+            let angle = self.rotationAngle
+
+            if let focus = c["focus"] as? [String: Any] {
+                if let p = focus["point"] as? [Double], p.count == 2, device.isFocusPointOfInterestSupported {
+                    device.focusPointOfInterest = Self.unrotate(CGPoint(x: p[0], y: p[1]), by: angle)
+                    if device.isFocusModeSupported(.continuousAutoFocus) { device.focusMode = .continuousAutoFocus }
+                }
+                switch focus["mode"] as? String {
+                case "manual":
+                    if device.isLockingFocusWithCustomLensPositionSupported, let pos = focus["position"] as? Double {
+                        device.setFocusModeLocked(lensPosition: Float(min(max(pos, 0), 1)), completionHandler: nil)
+                    }
+                case "auto":
+                    if device.isFocusModeSupported(.continuousAutoFocus) { device.focusMode = .continuousAutoFocus }
+                default: break
+                }
+            }
+
+            if let exposure = c["exposure"] as? [String: Any] {
+                if let p = exposure["point"] as? [Double], p.count == 2, device.isExposurePointOfInterestSupported {
+                    device.exposurePointOfInterest = Self.unrotate(CGPoint(x: p[0], y: p[1]), by: angle)
+                    if device.isExposureModeSupported(.continuousAutoExposure) { device.exposureMode = .continuousAutoExposure }
+                }
+                switch exposure["mode"] as? String {
+                case "auto":
+                    if device.isExposureModeSupported(.continuousAutoExposure) { device.exposureMode = .continuousAutoExposure }
+                    if let bias = exposure["bias"] as? Double {
+                        let b = min(max(Float(bias), device.minExposureTargetBias), device.maxExposureTargetBias)
+                        device.setExposureTargetBias(b, completionHandler: nil)
+                    }
+                case "manual":
+                    guard device.isExposureModeSupported(.custom) else { break }
+                    let format = device.activeFormat
+                    let iso = min(max(Float(exposure["iso"] as? Double ?? Double(device.iso)), format.minISO), format.maxISO)
+                    let longest = min(CMTimeGetSeconds(format.maxExposureDuration),
+                                      CMTimeGetSeconds(device.activeVideoMaxFrameDuration))  // ≤ one frame
+                    let seconds = min(max(exposure["shutter"] as? Double ?? CMTimeGetSeconds(device.exposureDuration),
+                                          CMTimeGetSeconds(format.minExposureDuration)), longest)
+                    device.setExposureModeCustom(duration: CMTime(seconds: seconds, preferredTimescale: 1_000_000_000),
+                                                 iso: iso, completionHandler: nil)
+                default: break
+                }
+            }
+
+            if let wb = c["whiteBalance"] as? [String: Any] {
+                switch wb["mode"] as? String {
+                case "auto":
+                    if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
+                        device.whiteBalanceMode = .continuousAutoWhiteBalance
+                    }
+                case "locked":
+                    if device.isWhiteBalanceModeSupported(.locked) { device.whiteBalanceMode = .locked }
+                case "manual":
+                    guard device.isWhiteBalanceModeSupported(.locked) else { break }
+                    let values = AVCaptureDevice.WhiteBalanceTemperatureAndTintValues(
+                        temperature: Float(wb["temperature"] as? Double ?? 5000), tint: Float(wb["tint"] as? Double ?? 0))
+                    var gains = device.deviceWhiteBalanceGains(for: values)
+                    let maxGain = device.maxWhiteBalanceGain
+                    gains.redGain = min(max(gains.redGain, 1), maxGain)
+                    gains.greenGain = min(max(gains.greenGain, 1), maxGain)
+                    gains.blueGain = min(max(gains.blueGain, 1), maxGain)
+                    device.setWhiteBalanceModeLocked(with: gains, completionHandler: nil)
+                default: break
+                }
+            }
+        }
+    }
+
+    /// Inverse of rotate(): a point in the sent frame -> sensor (point-of-interest) coordinates.
+    static func unrotate(_ p: CGPoint, by angle: CGFloat) -> CGPoint {
+        switch Int(angle.rounded()) % 360 {
+        case 90: return CGPoint(x: p.y, y: 1 - p.x)
+        case 180: return CGPoint(x: 1 - p.x, y: 1 - p.y)
+        case 270: return CGPoint(x: 1 - p.y, y: p.x)
+        default: return p
+        }
     }
 
     /// The link couldn't keep up (send queue overflowed): drop the bitrate by a quarter, down to a

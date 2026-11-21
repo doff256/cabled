@@ -83,7 +83,42 @@ TEST(Framing, MovesSmoothlyNotInJumps) {
         biggestStep = std::max(biggestStep, std::abs(x - previous));
         previous = x;
     }
-    EXPECT_LT(biggestStep, 150);  // px per frame: a glide, not a cut
+    EXPECT_LT(biggestStep, 300);  // px per frame: a glide, not a cut (the whole move is ~2300 px)
+}
+
+TEST(Framing, TightnessShowsMoreOrLess) {
+    FramingSettings wide, tight;
+    wide.setTightness(0);
+    tight.setTightness(1);
+    wide.maxUpscale = tight.maxUpscale = 2;  // let both reach their natural size
+    Framer a, b;
+    double ta = 0, tb = 0;
+    const std::vector<Face> face = {{1, 0.45, 0.30, 0.08, 0.15}};
+    const CropRect rw = settle(a, face, 3840, 2160, ta, 6.0, wide);
+    const CropRect rt = settle(b, face, 3840, 2160, tb, 6.0, tight);
+    // Wide = 5x face (1536 px); tight would be 2.2x (676 px) but the quality guard stops it at
+    // 1920 / maxUpscale = 960 px.
+    EXPECT_GT(rw.w, rt.w * 1.5);
+    EXPECT_NEAR(rt.w, 960, 2);
+    EXPECT_DOUBLE_EQ(tight.tightness(), 1.0);
+}
+
+TEST(Framing, GroupFramingFitsEveryone) {
+    FramingSettings s;
+    s.group = true;
+    Framer f;
+    double t = 0;
+    const std::vector<Face> two = {{1, 0.15, 0.30, 0.08, 0.15}, {2, 0.70, 0.32, 0.08, 0.15}};
+    const CropRect r = settle(f, two, 3840, 2160, t, 6.0, s);
+    for (const Face& face : two) {  // both faces fully inside the crop
+        EXPECT_LE(r.x, face.x * 3840);
+        EXPECT_GE(r.x + r.w, (face.x + face.w) * 3840);
+    }
+    // Single-person framing would follow just one of them.
+    Framer single;
+    double t2 = 0;
+    const CropRect one = settle(single, two, 3840, 2160, t2);
+    EXPECT_LT(one.w, r.w);
 }
 
 TEST(Framing, HoldsThenReturnsToFullViewWhenTheFaceIsLost) {

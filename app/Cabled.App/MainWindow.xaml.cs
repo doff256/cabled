@@ -27,6 +27,15 @@ public sealed partial class MainWindow : Window
     private DateTime _userZoomedAt = DateTime.MinValue;
     private DateTime _lastZoomSent = DateTime.MinValue;
     private int _engineFaces = -1;
+    // R8: side panel
+    private WriteableBitmap? _overviewBitmap;
+    private byte[] _overview = new byte[320 * 180 * 4];
+    private ulong _overviewSeq;
+    private int _tick;
+    private readonly DispatcherQueueTimer _controlsTimer;
+    private readonly Dictionary<string, object> _pendingControls = new();
+    private double[] _isoRange = { 25, 3200 }, _shutterRange = { 1.0 / 8000, 1.0 / 30 };
+    private double _cropX, _cropY, _cropW = 1, _cropH = 1;
 
     public MainWindow(string? tcpTarget, bool debugFaces = false)
     {
@@ -41,6 +50,65 @@ public sealed partial class MainWindow : Window
             debugFaces,
         });
         FramingSwitch.Toggled += (_, _) => _engine.SetFraming(FramingSwitch.IsOn);
+
+        // ---- R8 side panel ----
+        _controlsTimer = DispatcherQueue.CreateTimer();
+        _controlsTimer.Interval = TimeSpan.FromMilliseconds(60);  // slider drags: send the latest, not every step
+        _controlsTimer.IsRepeating = false;
+        _controlsTimer.Tick += (_, _) => FlushControls();
+
+        TightnessSlider.ValueChanged += (_, _) => ApplyFramingOptions();
+        SpeedCombo.SelectionChanged += (_, _) => ApplyFramingOptions();
+        GroupCheck.Click += (_, _) => ApplyFramingOptions();
+
+        FocusAutoSwitch.Toggled += (_, _) =>
+        {
+            FocusSlider.IsEnabled = !FocusAutoSwitch.IsOn;
+            QueueControl("focus", FocusAutoSwitch.IsOn
+                ? new { mode = "auto" }
+                : new { mode = "manual", position = FocusSlider.Value / 100 });
+        };
+        FocusSlider.ValueChanged += (_, _) =>
+        {
+            if (!FocusAutoSwitch.IsOn) QueueControl("focus", new { mode = "manual", position = FocusSlider.Value / 100 });
+        };
+
+        ExposureAutoSwitch.Toggled += (_, _) =>
+        {
+            ExposureAutoPanel.Visibility = ExposureAutoSwitch.IsOn ? Visibility.Visible : Visibility.Collapsed;
+            ExposureManualPanel.Visibility = ExposureAutoSwitch.IsOn ? Visibility.Collapsed : Visibility.Visible;
+            SendExposure();
+        };
+        BiasSlider.ValueChanged += (_, _) =>
+        {
+            BiasText.Text = $"Brightness {BiasSlider.Value / 10:+0.0;-0.0;0.0} EV";
+            SendExposure();
+        };
+        IsoSlider.ValueChanged += (_, _) => SendExposure();
+        ShutterSlider.ValueChanged += (_, _) => SendExposure();
+
+        WbAutoSwitch.Toggled += (_, _) =>
+        {
+            WbManualPanel.Visibility = WbAutoSwitch.IsOn ? Visibility.Collapsed : Visibility.Visible;
+            SendWhiteBalance();
+        };
+        TempSlider.ValueChanged += (_, _) => SendWhiteBalance();
+        TintSlider.ValueChanged += (_, _) => SendWhiteBalance();
+
+        CaptureCombo.SelectionChanged += (_, _) => ApplyCapture();
+        FpsCombo.SelectionChanged += (_, _) => ApplyCapture();
+
+        Preview.PointerPressed += (_, e) =>
+        {
+            // Click -> point within the displayed picture (Uniform letterboxing) -> focus/expose there.
+            if (_bitmap is null || Preview.ActualWidth <= 0) return;
+            var p = e.GetCurrentPoint(Preview).Position;
+            double scale = Math.Min(Preview.ActualWidth / _bitmap.PixelWidth, Preview.ActualHeight / _bitmap.PixelHeight);
+            double w = _bitmap.PixelWidth * scale, h = _bitmap.PixelHeight * scale;
+            double x = (p.X - (Preview.ActualWidth - w) / 2) / w, y = (p.Y - (Preview.ActualHeight - h) / 2) / h;
+            if (x is >= 0 and <= 1 && y is >= 0 and <= 1) _engine.TapFocus(x, y);
+        };
+        OverviewHost.SizeChanged += (_, _) => LayoutCropBox();
         _engine.Start();
 
         _previewTimer = DispatcherQueue.CreateTimer();
@@ -82,6 +150,20 @@ public sealed partial class MainWindow : Window
 
     private void UpdatePreview()
     {
+        // The overview thumbnail updates at ~15 fps; plenty for seeing where the crop is.
+        if (++_tick % 4 == 0 && _engine.TryCopyOverview(ref _overview, ref _overviewSeq, out int ow, out int oh))
+        {
+            if (_overviewBitmap is null || _overviewBitmap.PixelWidth != ow || _overviewBitmap.PixelHeight != oh)
+            {
+                _overviewBitmap = new WriteableBitmap(ow, oh);
+                OverviewImage.Source = _overviewBitmap;
+                LayoutCropBox();
+            }
+            using (var stream = _overviewBitmap.PixelBuffer.AsStream())
+                stream.Write(_overview, 0, ow * oh * 4);
+            _overviewBitmap.Invalidate();
+        }
+
         if (!_engine.TryCopyPreview(ref _frame, ref _frameSeq, out int w, out int h)) return;
         if (_bitmap is null || _bitmap.PixelWidth != w || _bitmap.PixelHeight != h)
         {
@@ -134,6 +216,8 @@ public sealed partial class MainWindow : Window
 
         _engineFaces = s.GetProperty("framing").GetProperty("faces").GetInt32();
         UpdateCameraControls(s.GetProperty("camera"), live || state == "idle");
+        SidePanel.Visibility = live || state == "idle" ? Visibility.Visible : Visibility.Collapsed;
+        UpdateSidePanel(s);
 
         if (state != _state)
         {
@@ -142,6 +226,108 @@ public sealed partial class MainWindow : Window
             PreviewHint.Visibility = state == "streaming" ? Visibility.Collapsed : Visibility.Visible;
             PreviewHint.Text = _bitmap is null ? "No video yet" : "";
         }
+    }
+
+    // ---- Side panel (R8) ----
+
+    private void ApplyFramingOptions()
+    {
+        double speed = SpeedCombo.SelectedIndex switch { 0 => 0.6, 2 => 1.6, _ => 1.0 };
+        _engine.SetFramingOptions(TightnessSlider.Value / 100, speed, GroupCheck.IsChecked == true);
+    }
+
+    private void QueueControl(string key, object value)
+    {
+        _pendingControls[key] = value;
+        _controlsTimer.Stop();
+        _controlsTimer.Start();
+    }
+
+    private void FlushControls()
+    {
+        if (_pendingControls.Count == 0) return;
+        _engine.SetControls(new Dictionary<string, object>(_pendingControls));
+        _pendingControls.Clear();
+    }
+
+    private static double LogLerp(double[] range, double t) =>
+        Math.Exp(Math.Log(range[0]) + (Math.Log(range[1]) - Math.Log(range[0])) * Math.Clamp(t, 0, 1));
+
+    private void SendExposure()
+    {
+        if (ExposureAutoSwitch.IsOn)
+        {
+            QueueControl("exposure", new { mode = "auto", bias = BiasSlider.Value / 10 });
+            return;
+        }
+        double iso = LogLerp(_isoRange, IsoSlider.Value / 1000);
+        double shutter = LogLerp(_shutterRange, ShutterSlider.Value / 1000);
+        IsoText.Text = $"ISO {iso:0}";
+        ShutterText.Text = shutter >= 0.1 ? $"Shutter {shutter:0.0} s" : $"Shutter 1/{1 / shutter:0} s";
+        QueueControl("exposure", new { mode = "manual", iso, shutter });
+    }
+
+    private void SendWhiteBalance()
+    {
+        TempText.Text = $"{TempSlider.Value:0} K";
+        TintText.Text = $"Tint {TintSlider.Value:+0;-0;0}";
+        QueueControl("whiteBalance", WbAutoSwitch.IsOn
+            ? new { mode = "auto" }
+            : new { mode = "manual", temperature = TempSlider.Value, tint = TintSlider.Value });
+    }
+
+    private void ApplyCapture()
+    {
+        (int w, int h) = CaptureCombo.SelectedIndex switch { 1 => (1280, 720), 2 => (1920, 1080), 3 => (3840, 2160), _ => (0, 0) };
+        double fps = FpsCombo.SelectedIndex switch { 1 => 30, 2 => 60, 3 => 120, _ => 0 };
+        _engine.SetCapture(w, h, fps);
+    }
+
+    private void UpdateSidePanel(JsonElement s)
+    {
+        var framing = s.GetProperty("framing");
+        if (framing.TryGetProperty("crop", out var crop))
+        {
+            _cropX = crop.GetProperty("x").GetDouble();
+            _cropY = crop.GetProperty("y").GetDouble();
+            _cropW = crop.GetProperty("w").GetDouble();
+            _cropH = crop.GetProperty("h").GetDouble();
+            LayoutCropBox();
+        }
+
+        // Live camera readouts and the ranges the manual sliders map onto.
+        var controls = s.GetProperty("controls");
+        if (controls.TryGetProperty("exposure", out var exposure))
+        {
+            if (exposure.TryGetProperty("isoRange", out var ir) && ir.GetArrayLength() == 2)
+                _isoRange = new[] { Math.Max(1, ir[0].GetDouble()), Math.Max(2, ir[1].GetDouble()) };
+            if (exposure.TryGetProperty("shutterRange", out var sr) && sr.GetArrayLength() == 2)
+                _shutterRange = new[] { Math.Max(1e-6, sr[0].GetDouble()), Math.Max(2e-6, sr[1].GetDouble()) };
+            double shutter = exposure.GetProperty("shutter").GetDouble();
+            ExposureLive.Text = $"Now: ISO {exposure.GetProperty("iso").GetDouble():0} · " +
+                                (shutter >= 0.1 ? $"{shutter:0.0} s" : $"1/{1 / Math.Max(shutter, 1e-6):0} s");
+        }
+        if (controls.TryGetProperty("focus", out var focus))
+        {
+            FocusAutoSwitch.IsEnabled = !focus.TryGetProperty("manualSupported", out var ms) || ms.GetBoolean() ||
+                                        !FocusAutoSwitch.IsOn;
+            if (FocusAutoSwitch.IsOn && focus.TryGetProperty("position", out var pos))
+                FocusSlider.Value = pos.GetDouble() * 100;  // show where autofocus is
+        }
+    }
+
+    // Box in a box: outline the part of the camera view being sent, over the overview thumbnail.
+    private void LayoutCropBox()
+    {
+        if (_overviewBitmap is null || OverviewHost.ActualWidth <= 0) return;
+        double scale = Math.Min(OverviewHost.ActualWidth / _overviewBitmap.PixelWidth,
+                                OverviewHost.ActualHeight / _overviewBitmap.PixelHeight);
+        double w = _overviewBitmap.PixelWidth * scale, h = _overviewBitmap.PixelHeight * scale;
+        double left = (OverviewHost.ActualWidth - w) / 2, top = (OverviewHost.ActualHeight - h) / 2;
+        Canvas.SetLeft(CropBox, left + _cropX * w);
+        Canvas.SetTop(CropBox, top + _cropY * h);
+        CropBox.Width = Math.Max(2, _cropW * w);
+        CropBox.Height = Math.Max(2, _cropH * h);
     }
 
     // ---- Lens + zoom (R6) ----

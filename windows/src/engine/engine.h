@@ -66,6 +66,10 @@ struct EngineStatus {
     std::string lens;      // physical lens in use (virtual cameras switch by themselves)
     bool framing = true;   // auto-framing on (R7)
     int faces = 0;         // faces the phone currently sees
+    // R8
+    nlohmann::json framingInfo = nlohmann::json::object();  // knobs + current crop (normalized)
+    nlohmann::json controls = nlohmann::json::object();     // phone's camera state: iso, shutter, focus, wb...
+    nlohmann::json capture = nlohmann::json::object();      // pinned capture size/fps (0 = auto)
     nlohmann::json toJson() const;
 };
 
@@ -109,6 +113,18 @@ public:
     void setZoom(double display, bool smooth);
     // R7: auto-framing on/off (also changes what the phone is asked to capture).
     void setFraming(bool enabled);
+
+    // R8. tightness 0 = show more .. 1 = show less; speed 0.6 calm, 1 normal, 1.6 fast.
+    void setFramingOptions(double tightness, double speed, bool group);
+    // Focus / exposure / white balance: a CONTROL_SET body, e.g. {"exposure":{"mode":"auto","bias":0.3}}.
+    // Remembered and re-applied after reconnects and camera changes.
+    void setControls(const nlohmann::json& controls);
+    // Tap on the preview (0..1 in the output picture) -> focus and expose there.
+    void tapToFocus(double x, double y);
+    // Pin the capture size / frame rate (0 = automatic).
+    void setCapture(uint32_t width, uint32_t height, double fps);
+    // Small picture of the whole camera view (the crop is status().framingInfo["crop"]).
+    bool copyOverview(std::vector<uint8_t>& bgra, uint32_t& width, uint32_t& height, uint64_t& seq) const;
 
 private:
     struct Impl;

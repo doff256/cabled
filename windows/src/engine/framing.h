@@ -19,12 +19,17 @@ struct CropRect {
 
 struct FramingSettings {
     bool enabled = true;      // R-42: on by default
+    bool group = false;       // frame everyone in view instead of one person
     double headroom = 0.18;   // top of the face at this fraction of the crop height
     double widthFactor = 3.2; // crop width = face width x this (head and shoulders)
     double maxUpscale = 1.0;  // quality guard: crop never smaller than output / this (1 = no upscaling)
-    double deadZone = 0.08;   // ignore moves smaller than this fraction of the crop width
+    double deadZone = 0.05;   // ignore moves smaller than this fraction of the crop width
     double speed = 1.0;       // spring speed multiplier (calm < 1 < fast)
-    double holdSeconds = 2.0; // keep framing this long after the face is lost
+    double holdSeconds = 1.5; // keep framing this long after the face is lost
+
+    // User-facing knobs (R8). tightness 0 = show more (wide), 1 = show less (tight).
+    void setTightness(double tightness);
+    double tightness() const;
 };
 
 // Largest centered rectangle with the output's aspect ratio (fills the output, crops the rest).
@@ -38,7 +43,8 @@ public:
     void reset() { initialized_ = false; }
 
 private:
-    CropRect target(const Face& f, uint32_t srcW, uint32_t srcH, uint32_t outW, uint32_t outH,
+    // `subject`: one face, or (group framing) the union of everyone; `faceW` drives the width.
+    CropRect target(const Face& subject, double faceW, uint32_t srcW, uint32_t srcH, uint32_t outW, uint32_t outH,
                     const FramingSettings& s) const;
 
     bool initialized_ = false;

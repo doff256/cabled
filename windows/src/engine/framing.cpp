@@ -19,13 +19,22 @@ CropRect fillCrop(uint32_t srcW, uint32_t srcH, uint32_t outW, uint32_t outH) {
     return r;
 }
 
-CropRect Framer::target(const Face& f, uint32_t srcW, uint32_t srcH, uint32_t outW, uint32_t outH,
+void FramingSettings::setTightness(double t) {
+    t = std::clamp(t, 0.0, 1.0);
+    widthFactor = 5.0 - 2.8 * t;  // 5x face width (shows the room) .. 2.2x (face fills it)
+}
+
+double FramingSettings::tightness() const { return std::clamp((5.0 - widthFactor) / 2.8, 0.0, 1.0); }
+
+CropRect Framer::target(const Face& f, double faceW, uint32_t srcW, uint32_t srcH, uint32_t outW, uint32_t outH,
                         const FramingSettings& s) const {
     const CropRect full = fillCrop(srcW, srcH, outW, outH);
     const double aspect = double(outW) / double(outH);
     // Head and shoulders, but never smaller than the quality guard allows, never bigger than the frame.
+    // A group must also fit side by side with a margin of half a face on each side.
     const double minW = std::min(full.w, double(outW) / std::max(1.0, s.maxUpscale));
-    double w = std::clamp(f.w * srcW * s.widthFactor, minW, full.w);
+    const double wanted = std::max(faceW * srcW * s.widthFactor, (f.w + faceW) * srcW);
+    double w = std::clamp(wanted, minW, full.w);
     double h = w / aspect;
     const double faceCx = (f.x + f.w / 2) * srcW;
     const double faceTop = f.y * srcH;
@@ -74,15 +83,40 @@ CropRect Framer::update(const std::vector<Face>& faces, uint32_t srcW, uint32_t 
         }
     }
 
-    // 2. Target: frame the face; after losing it, hold, then go back to the full view.
+    // Group framing: everyone big enough to count (> 40% of the largest face), as one subject.
+    Face groupBox;
+    double groupFaceW = 0;
+    if (s.group && faces.size() > 1) {
+        double largest = 0;
+        for (const Face& f : faces) largest = std::max(largest, f.w);
+        double x0 = 1, y0 = 1, x1 = 0, y1 = 0, sumW = 0;
+        int n = 0;
+        for (const Face& f : faces) {
+            if (f.w < 0.4 * largest) continue;
+            x0 = std::min(x0, f.x);
+            y0 = std::min(y0, f.y);
+            x1 = std::max(x1, f.x + f.w);
+            y1 = std::max(y1, f.y + f.h);
+            sumW += f.w;
+            ++n;
+        }
+        if (n > 1) {
+            groupBox = {-2, x0, y0, x1 - x0, y1 - y0};
+            groupFaceW = sumW / n;
+            primary = &groupBox;
+        }
+    }
+
+    // 2. Target: frame the face(s); after losing them, hold, then go back to the full view.
     if (primary) {
         primaryId_ = primary->id;
         lastSeen_ = now;
-        const CropRect t = target(*primary, srcW, srcH, outW, outH, s);
+        const double faceW = primary == &groupBox ? groupFaceW : primary->w;
+        const CropRect t = target(*primary, faceW, srcW, srcH, outW, outH, s);
         const double ncx = t.x + t.w / 2, ncy = t.y + t.h / 2;
         // 3. Dead zone: small moves and size changes are noise (or someone breathing).
         const bool moved = std::abs(ncx - tx_) > s.deadZone * tw_ || std::abs(ncy - ty_) > s.deadZone * tw_ / 2;
-        const bool resized = std::abs(t.w - tw_) > 0.10 * tw_;
+        const bool resized = std::abs(t.w - tw_) > 0.07 * tw_;
         if (moved || resized) {
             tx_ = ncx;
             ty_ = ncy;
@@ -98,8 +132,8 @@ CropRect Framer::update(const std::vector<Face>& faces, uint32_t srcW, uint32_t 
     // 4. Critically damped springs (same feel at any frame rate); size moves slower than position.
     const double dt = std::clamp(now - lastTime_, 0.0, 0.1);
     lastTime_ = now;
-    // ~1.3 s to cover 90% of a move, ~1.6 s for a zoom change: calm, not laggy.
-    const double wPos = 3.5 * s.speed, wSize = 2.5 * s.speed;
+    // ~0.65 s to cover 90% of a move, ~0.85 s for a zoom change at normal speed (R8: snappier).
+    const double wPos = 6.0 * s.speed, wSize = 4.5 * s.speed;
     auto spring = [dt](double& x, double& v, double target, double omega) {
         const double a = omega * omega * (target - x) - 2.0 * omega * v;
         v += a * dt;

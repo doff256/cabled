@@ -119,13 +119,30 @@ Choice negotiate(const PhoneCaps& caps, const Want& want, double linkMbps) {
     Choice c;
     if (!want.consumer) return c;  // enabled = false: let the phone's camera rest
     c.enabled = true;
-    const double fps = want.fps > 0 ? want.fps : 30;
+    double fps = want.pinFps > 0 ? want.pinFps : (want.fps > 0 ? want.fps : 30);
     // Auto-framing crops into the picture, so capture about twice the output in each direction
     // (4K for a 1080p output) and the crop needs no upscaling (docs/video-pipeline.md, step 3).
     Want sized = want;
-    if (want.framing) {
+    if (want.pinWidth && want.pinHeight) {
+        sized.width = want.pinWidth;
+        sized.height = want.pinHeight;
+    } else if (want.framing) {
         sized.width = want.width * 2;
         sized.height = want.height * 2;
+    }
+    // Thermal step-down (F7): a hot phone gets a lighter job, whatever was asked for.
+    uint64_t maxArea = UINT64_MAX;
+    if (want.thermal == "serious") {
+        maxArea = 1920ull * 1080;
+        fps = std::min(fps, 30.0);
+    } else if (want.thermal == "critical") {
+        maxArea = 1280ull * 720;
+        fps = std::min(fps, 30.0);
+    }
+    if (uint64_t(sized.width) * sized.height > maxArea) {
+        const double scale = std::sqrt(double(maxArea) / (double(sized.width) * sized.height));
+        sized.width = uint32_t(sized.width * scale);
+        sized.height = uint32_t(sized.height * scale);
     }
 
     // 0. Which camera: the user's choice if the phone has it, else the phone's default.
@@ -143,16 +160,20 @@ Choice negotiate(const PhoneCaps& caps, const Want& want, double linkMbps) {
         // 1. Formats that can do the frame rate (never go below the app's fps if avoidable).
         std::vector<CameraFormat> usable;
         for (const auto& f : formats) {
+            if (uint64_t(f.width) * f.height > maxArea) continue;  // too heavy for a hot phone
             if (f.maxFps + 0.01 >= fps && f.minFps - 0.01 <= fps) usable.push_back(f);
         }
         double chosenFps = fps;
         if (usable.empty()) {  // nothing that fast: take the fastest the phone has
             double best = 0;
-            for (const auto& f : formats) best = std::max(best, f.maxFps);
             for (const auto& f : formats) {
-                if (f.maxFps >= best - 0.01) usable.push_back(f);
+                if (uint64_t(f.width) * f.height <= maxArea) best = std::max(best, f.maxFps);
             }
-            chosenFps = best;
+            for (const auto& f : formats) {
+                if (f.maxFps >= best - 0.01 && uint64_t(f.width) * f.height <= maxArea) usable.push_back(f);
+            }
+            if (usable.empty()) usable = formats;  // nothing small enough: better than no video
+            chosenFps = std::min(best > 0 ? best : fps, fps);
         }
         // 2. Exact size, else the smallest that covers the app's size (no upscaling), else the largest.
         auto better = [](const CameraFormat& a, const CameraFormat& b) {  // prefer unbinned, then smaller

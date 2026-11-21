@@ -5,6 +5,7 @@
 #include "net.h"
 #include "product.h"
 
+#include <algorithm>
 #include <cstring>
 #include <deque>
 #include <memory>
@@ -112,6 +113,40 @@ void cabled_engine_set_zoom(cabled_engine* e, double zoom, int32_t smooth) {
 
 void cabled_engine_set_framing(cabled_engine* e, int32_t enabled) {
     if (e) e->engine->setFraming(enabled != 0);
+}
+
+void cabled_engine_set_framing_options(cabled_engine* e, double tightness, double speed, int32_t group) {
+    if (e) e->engine->setFramingOptions(tightness, speed, group != 0);
+}
+
+void cabled_engine_set_controls(cabled_engine* e, const char* controlsJson) {
+    if (!e || !controlsJson) return;
+    auto j = nlohmann::json::parse(controlsJson, nullptr, false);
+    if (!j.is_discarded()) e->engine->setControls(j);
+}
+
+void cabled_engine_tap_focus(cabled_engine* e, double x, double y) {
+    if (e) e->engine->tapToFocus(x, y);
+}
+
+void cabled_engine_set_capture(cabled_engine* e, int32_t width, int32_t height, double fps) {
+    if (e) e->engine->setCapture(uint32_t(std::max(0, width)), uint32_t(std::max(0, height)), fps);
+}
+
+int32_t cabled_engine_copy_overview(cabled_engine* e, uint8_t* buffer, int32_t capacity, int32_t* width,
+                                    int32_t* height, uint64_t* seq) {
+    if (!e || !width || !height || !seq) return 0;
+    std::lock_guard<std::mutex> lock(e->previewMutex);
+    std::vector<uint8_t> image;
+    uint32_t w = 0, h = 0;
+    uint64_t s = *seq;
+    if (!e->engine->copyOverview(image, w, h, s)) return 0;
+    *width = int32_t(w);
+    *height = int32_t(h);
+    if (!buffer || capacity < int32_t(image.size())) return -1;
+    std::memcpy(buffer, image.data(), image.size());
+    *seq = s;
+    return 1;
 }
 
 int32_t cabled_engine_take_log(cabled_engine* e, char* buffer, int32_t capacity) {

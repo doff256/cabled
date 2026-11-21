@@ -44,6 +44,19 @@ CABLED_API void cabled_engine_set_zoom(cabled_engine* engine, double zoom, int32
 /* R7: auto-framing on/off (config keys: "framing", "debugFaces"). */
 CABLED_API void cabled_engine_set_framing(cabled_engine* engine, int32_t enabled);
 
+/* R8. tightness 0 (show more) .. 1 (show less); speed 0.6 calm / 1 normal / 1.6 fast. */
+CABLED_API void cabled_engine_set_framing_options(cabled_engine* engine, double tightness, double speed,
+                                                  int32_t group);
+/* controls_json: a CONTROL_SET body (focus / exposure / whiteBalance), see transport-and-protocol.md. */
+CABLED_API void cabled_engine_set_controls(cabled_engine* engine, const char* controls_json);
+/* x, y: 0..1 within the output picture. */
+CABLED_API void cabled_engine_tap_focus(cabled_engine* engine, double x, double y);
+/* Pin capture size / fps; 0 = automatic. */
+CABLED_API void cabled_engine_set_capture(cabled_engine* engine, int32_t width, int32_t height, double fps);
+/* Small picture of the whole camera view; same contract as copy_preview. */
+CABLED_API int32_t cabled_engine_copy_overview(cabled_engine* engine, uint8_t* buffer, int32_t capacity,
+                                               int32_t* width, int32_t* height, uint64_t* seq);
+
 /* Engine log lines since the last call, newline-separated (same size contract as status_json). */
 CABLED_API int32_t cabled_engine_take_log(cabled_engine* engine, char* buffer, int32_t capacity);
 

@@ -55,6 +55,11 @@ struct Want {
     double fps = 30;
     std::string camera;     // user's choice; empty = phone's default
     bool framing = false;   // auto-framing crops: ask for ~2x the output so the crop stays sharp
+    // Manual override (R-58, R8): pin the capture size and/or frame rate (0 = automatic).
+    uint32_t pinWidth = 0, pinHeight = 0;
+    double pinFps = 0;
+    // Phone heat (ProcessInfo.thermalState): "serious" -> at most 1080p30, "critical" -> 720p30.
+    std::string thermal;
 };
 
 struct Choice {
