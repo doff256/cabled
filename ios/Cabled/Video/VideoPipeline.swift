@@ -254,7 +254,8 @@ final class VideoPipeline: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         timer.setEventHandler { [weak self] in
             guard let self, let device = self.device else { return }
             let state = Self.controlState(device)
-            guard let data = try? JSONSerialization.data(withJSONObject: state, options: [.sortedKeys]),
+            guard JSONSerialization.isValidJSONObject(state),
+                  let data = try? JSONSerialization.data(withJSONObject: state, options: [.sortedKeys]),
                   let json = String(data: data, encoding: .utf8), json != self.lastStateJSON else { return }
             self.lastStateJSON = json
             self.onControlState(state)
@@ -263,12 +264,23 @@ final class VideoPipeline: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         controlTimer = timer
     }
 
-    private static func r(_ v: Double, _ places: Double = 100) -> Double { (v * places).rounded() / places }
+    /// Rounded, and never NaN/infinity: JSONSerialization raises an uncatchable exception on those.
+    private static func r(_ v: Double, _ places: Double = 100) -> Double {
+        guard v.isFinite else { return 0 }
+        let x = (v * places).rounded() / places
+        return x.isFinite ? x : 0
+    }
+
+    private static func seconds(_ t: CMTime) -> Double {
+        let s = CMTimeGetSeconds(t)
+        return t.isValid && s.isFinite ? s : 0
+    }
 
     static func controlState(_ d: AVCaptureDevice) -> [String: Any] {
         let format = d.activeFormat
-        let shutter = CMTimeGetSeconds(d.exposureDuration)
-        let maxShutter = min(CMTimeGetSeconds(format.maxExposureDuration), CMTimeGetSeconds(d.activeVideoMaxFrameDuration))
+        let shutter = seconds(d.exposureDuration)
+        let frame = seconds(d.activeVideoMaxFrameDuration)
+        let maxShutter = frame > 0 ? min(seconds(format.maxExposureDuration), frame) : seconds(format.maxExposureDuration)
         let wb = d.temperatureAndTintValues(for: d.deviceWhiteBalanceGains)
         return [
             "camera": d.uniqueID,
@@ -285,9 +297,9 @@ final class VideoPipeline: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                 "iso": r(Double(d.iso), 1),
                 "shutter": r(shutter, 100_000),
                 "bias": r(Double(d.exposureTargetBias)),
-                "isoRange": [Double(format.minISO), Double(format.maxISO)],
-                "shutterRange": [CMTimeGetSeconds(format.minExposureDuration), maxShutter],
-                "biasRange": [Double(d.minExposureTargetBias), Double(d.maxExposureTargetBias)],
+                "isoRange": [r(Double(format.minISO), 1), r(Double(format.maxISO), 1)],
+                "shutterRange": [r(seconds(format.minExposureDuration), 1_000_000), r(maxShutter, 1_000_000)],
+                "biasRange": [r(Double(d.minExposureTargetBias)), r(Double(d.maxExposureTargetBias))],
             ],
             "whiteBalance": [
                 "mode": d.whiteBalanceMode == .continuousAutoWhiteBalance ? "auto" : "manual",

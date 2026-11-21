@@ -1,4 +1,4 @@
-# XcodeGen spec. Generate the project with:  cd ios && xcodegen generate
+﻿# XcodeGen spec. Generate the project with:  cd ios && xcodegen generate
 # The generated Cabled.xcodeproj is not committed.
 name: Cabled
 options:
@@ -14,7 +14,7 @@ settings:
     SWIFT_VERSION: "5.0"
     IPHONEOS_DEPLOYMENT_TARGET: "17.0"
     MARKETING_VERSION: "0.1.0"
-    CURRENT_PROJECT_VERSION: "7"
+    CURRENT_PROJECT_VERSION: "8"
 targets:
   Cabled:
     type: application

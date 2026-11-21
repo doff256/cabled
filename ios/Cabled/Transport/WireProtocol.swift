@@ -134,7 +134,9 @@ enum WireCodec {
     // MARK: JSON bodies
 
     static func json(_ object: [String: Any]) -> [UInt8] {
-        guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else { return [] }
+        // isValidJSONObject first: NaN/infinity would raise an Objective-C exception that try? can't catch.
+        guard JSONSerialization.isValidJSONObject(object),
+              let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else { return [] }
         return [UInt8](data)
     }
 

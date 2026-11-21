@@ -38,7 +38,7 @@ One focused Claude Code session on one milestone, ending in a **buildable, teste
 | R5 | ✅ Negotiation (CAPS, link probe, format/codec/bitrate), idle when nobody watches, HEVC, bitrate adaptation, 4K60/1440p/1080p120 formats. Tested on the iPhone Air | [runs/R5-R6.md](runs/R5-R6.md) |
 | R6 | ✅ Cameras/lenses, zoom with ramps and presets, app lens/zoom controls. Works on the iPhone Air (17 Pro untested) | [runs/R5-R6.md](runs/R5-R6.md) |
 | R7 | ✅ Auto-rotation, phone face detection, framer, framing toggle. Tested on the iPhone Air | [runs/R7.md](runs/R7.md) |
-| R8 | Built: framing tightness/speed/group, box-in-box overview, focus/exposure/WB + tap-to-focus, capture pins, thermal step-down. Closes P1. Waiting for the owner's test on build 7 | [runs/R8.md](runs/R8.md) |
+| R8 | Built: framing tightness/speed/group, box-in-box overview, focus/exposure/WB + tap-to-focus, capture pins, thermal step-down. Closes P1. Waiting for the owner's test on build 8 | [runs/R8.md](runs/R8.md) |
 
 ### Phase 0: spikes (do these first; they can change the plan)
 | Run | Goal | Exit criteria | You do |
