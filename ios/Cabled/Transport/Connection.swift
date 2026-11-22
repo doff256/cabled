@@ -188,7 +188,8 @@ final class Connection {
                                  "lowLatencyRateControl": applied.lowLatencyRateControl])
         let description = "Streaming \(applied.width)×\(applied.height) @ \(Int(applied.fps))"
             + (applied.hevc ? " HEVC" : "")
-        context.emit(.streaming(description))
+        context.emit(.streaming(StreamInfo(width: Int(applied.width), height: Int(applied.height),
+                                           fps: Int(applied.fps.rounded()), hevc: applied.hevc)))
         log(description + (applied.lowLatencyRateControl ? " (low-latency encoder)" : ""))
     }
 
@@ -241,6 +242,7 @@ final class Connection {
         let session = status["session"] as? String ?? "?"
         let reason = status["reason"] as? String ?? ""
         log("Camera \(session)\(reason.isEmpty ? "" : " (\(reason))")")
+        context.emit(.camera(interruption: session == "interrupted" ? (reason.isEmpty ? "other" : reason) : nil))
     }
 
     // MARK: Probes

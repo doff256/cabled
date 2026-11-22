@@ -47,6 +47,7 @@ Binding to loopback only matters: connections forwarded by usbmux arrive on the 
 - Battery and charging state reported. A PC USB port gives roughly 500–900 mA, and long 4K60 sessions with the screen on can still drain the battery. The Windows UI shows this.
 
 ## Status screen (the only UI)
+Look (R16): Mangrove Glass. The hero is the app icon's iris in a carved well, closed while waiting and opening while live, with a status pill, a mono readout while streaming, the signature card, and a Liquid Glass bar (iOS 26; system material before) holding the version and Details (link test, log). Code: `App/Mangrove.swift` (tokens, fonts, materials), `App/IrisView.swift`, `App/StatusView.swift`.
 - A large state line: "Waiting for PC" / "Connected — streaming 3840×2160 @ 30" / "Paused: camera in use by another app".
 - Camera permission: explains why, links to Settings if denied.
 - Signing expiry: "Expires in 2 days — refresh in SideStore". Turns amber under 2 days.

@@ -45,6 +45,7 @@ One focused Claude Code session on one milestone, ending in a **buildable, teste
 | R13 | ✅ GPU-reset decoder recovery, thermal hysteresis + heat notice, faster image adjustments, soak tool + 20-min soak. Owner thermal/sleep checks listed | [runs/R13.md](runs/R13.md) |
 | R14 | ✅ Bug bash, docs, version 1.0.0 (iPhone build 13), release v1.0.0 | [runs/R14.md](runs/R14.md) |
 | R15 | ✅ (PC) Mangrove Glass look for the Windows app: theme generator, fonts, merged title bar + status pill, glass lens bar, mono readouts. Owner looks in light mode and with the 17 Pro | [runs/R15.md](runs/R15.md) |
+| R16 | iPhone app in Mangrove Glass: iris hero that opens while live, status pill, mono readout, signature card, Liquid Glass bar, details sheet. Owner installs from CI and checks each state | [runs/R16.md](runs/R16.md) |
 
 ### Phase 0: spikes (do these first; they can change the plan)
 | Run | Goal | Exit criteria | You do |
