@@ -139,4 +139,5 @@ jobs:
           Check downloads against \`SHA256SUMS.txt\`. Everything here was built by this repository's public CI.
           EOF
           gh release create "$GITHUB_REF_NAME" dist/*.exe dist/Cabled.ipa dist/apps.json dist/SHA256SUMS.txt \
-            --title "Cabled $VERSION" --notes-file notes.md --prerelease
+            --title "Cabled $VERSION" --notes-file notes.md --latest
+          # Not --prerelease: releases/latest/download/apps.json (the SideStore source) skips pre-releases.
