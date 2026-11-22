@@ -49,6 +49,7 @@ struct EngineStatus {
     std::string detail;    // what to do next
     std::string transport;  // "usb" or "tcp"
     std::string deviceModel, deviceSystem, deviceId, companionVersion;
+    std::string signingExpiry;  // companion signing expiry from HELLO (ISO 8601), "" if unknown (R11)
     uint32_t width = 0, height = 0;
     double fps = 0, mbps = 0, decodeMs = 0, latencyMs = 0;
     bool hardwareDecode = false;

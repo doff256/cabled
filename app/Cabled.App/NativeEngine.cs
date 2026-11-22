@@ -55,8 +55,11 @@ internal sealed partial class NativeEngine : IDisposable
         return true;
     }
 
-    public unsafe JsonDocument? Status()
+    public JsonDocument? Status() => StatusJson() is { } json ? JsonDocument.Parse(json) : null;
+
+    public unsafe string? StatusJson()
     {
+        if (_handle == 0) return null;
         while (true)
         {
             int needed;
@@ -64,7 +67,7 @@ internal sealed partial class NativeEngine : IDisposable
                 needed = Native.cabled_engine_status_json(_handle, p, _statusBuffer.Length);
             if (needed <= 0) return null;
             if (needed > _statusBuffer.Length) { _statusBuffer = new byte[needed * 2]; continue; }
-            return JsonDocument.Parse(_statusBuffer.AsMemory(0, needed - 1));
+            return Encoding.UTF8.GetString(_statusBuffer, 0, needed - 1);
         }
     }
 

@@ -48,6 +48,9 @@ public sealed partial class MainWindow : Window
     private bool _applying;  // true while a saved look is being put into the controls
     private TrayIcon? _tray;
     private bool _quitting;
+    // R11
+    private readonly LogBook _logBook = new();
+    private DiagnosticsWindow? _diagnostics;
 
     public MainWindow(string? tcpTarget, bool debugFaces = false)
     {
@@ -216,6 +219,7 @@ public sealed partial class MainWindow : Window
             _previewTimer.Stop();
             _statusTimer.Stop();
             SaveDevice();
+            _diagnostics?.Close();
             _tray?.Dispose();
             _engine.Dispose();  // stops the engine; the camera falls back to its own placeholder
         };
@@ -269,6 +273,8 @@ public sealed partial class MainWindow : Window
 
     private void UpdateStatus()
     {
+        string log = _engine.TakeLog();
+        if (log.Length > 0) _logBook.Add(log);
         using JsonDocument? doc = _engine.Status();
         if (doc is null) return;
         var s = doc.RootElement;
@@ -288,7 +294,19 @@ public sealed partial class MainWindow : Window
         var device = s.GetProperty("device");
         string model = device.GetProperty("model").GetString() ?? "";
         string system = device.GetProperty("system").GetString() ?? "";
-        DeviceText.Text = model.Length > 0 ? $"{model} · {system} · {s.GetProperty("transport").GetString()?.ToUpperInvariant()}" : "";
+        DeviceText.Text = model.Length > 0 ? $"{DeviceNames.Friendly(model)} · iOS {system} · {s.GetProperty("transport").GetString()?.ToUpperInvariant()}" : "";
+        // R-22: free signing runs out after 7 days. Warn while there's still time to refresh.
+        if (device.TryGetProperty("signingExpiry", out var exp) && DateTimeOffset.TryParse(exp.GetString(), out var expiry))
+        {
+            double days = (expiry - DateTimeOffset.Now).TotalDays;
+            if (days < 2)
+            {
+                Detail.Text = (string.IsNullOrEmpty(Detail.Text) ? "" : Detail.Text + " ") +
+                              (days <= 0 ? "The Cabled app on your iPhone has expired: refresh it in SideStore."
+                                         : $"The Cabled app on your iPhone expires in {Math.Max(1, (int)Math.Ceiling(days * 24))} hours: refresh it in SideStore.");
+                Detail.Visibility = Visibility.Visible;
+            }
+        }
 
         var v = s.GetProperty("video");
         bool live = state is "streaming" or "paused";
@@ -312,6 +330,7 @@ public sealed partial class MainWindow : Window
         string deviceId = device.GetProperty("id").GetString() ?? "";
         if (deviceId.Length > 0 && deviceId != _deviceId) LoadDevice(deviceId);
         if (_tray is not null) _tray.Tip = $"Cabled: {Headline.Text}";
+        UpdateOnboarding(state, Headline.Text ?? "", s.GetProperty("detail").GetString() ?? "");
 
         if (state != _state)
         {

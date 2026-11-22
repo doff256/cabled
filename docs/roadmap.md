@@ -39,7 +39,8 @@ One focused Claude Code session on one milestone, ending in a **buildable, teste
 | R6 | ✅ Cameras/lenses, zoom with ramps and presets, app lens/zoom controls. Works on the iPhone Air (17 Pro untested) | [runs/R5-R6.md](runs/R5-R6.md) |
 | R7 | ✅ Auto-rotation, phone face detection, framer, framing toggle. Tested on the iPhone Air | [runs/R7.md](runs/R7.md) |
 | R8 | ✅ Fixed zoom + following with a box-in-box you can drag, group framing, focus/exposure/WB + click-to-focus, capture pins, thermal step-down, fast format switch. Tested on the iPhone Air (build 10). P1 closed (M2) | [runs/R8.md](runs/R8.md) |
-| R9 | Built: side-panel pages (Framing, Camera, Image, Presets, App), image adjustments (brightness/contrast/saturation/sharpness/mirror, rotation override), per-iPhone settings + presets, tray, start at login, single instance, app icon. Waiting for the owner's test on build 11 | [runs/R9.md](runs/R9.md) |
+| R9 | ✅ side-panel pages (Framing, Camera, Image, Presets, App), image adjustments (brightness/contrast/saturation/sharpness/mirror, rotation override), per-iPhone settings + presets, tray, start at login, single instance, app icon. Tested by the owner (tabs widened in R11) | [runs/R9.md](runs/R9.md) |
+| R11 | Built: Inno Setup installer (camera registration, upgrade, uninstall), first-run setup guide (Apple service → iPhone → companion), diagnostics window + Copy report, signing-expiry warning, release workflow (installer + IPA + SideStore source + hashes), user README. Waiting for the owner's test | [runs/R11.md](runs/R11.md) |
 
 ### Phase 0: spikes (do these first; they can change the plan)
 | Run | Goal | Exit criteria | You do |

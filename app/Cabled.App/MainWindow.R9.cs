@@ -88,6 +88,19 @@ public sealed partial class MainWindow
             Directory.CreateDirectory(SettingsStore.Folder);
             Process.Start(new ProcessStartInfo("explorer.exe", $"\"{SettingsStore.Folder}\"") { UseShellExecute = true });
         };
+
+        // R11: diagnostics and the setup guide
+        DiagnosticsButton.Click += (_, _) =>
+        {
+            if (_diagnostics is null)
+            {
+                _diagnostics = new DiagnosticsWindow(_engine.StatusJson, _logBook);
+                _diagnostics.Closed += (_, _) => _diagnostics = null;
+            }
+            _diagnostics.Activate();
+        };
+        SetupAgainLink.Click += (_, _) => ShowOnboarding();
+        WireOnboarding();
     }
 
     private void ShowPage(string? name)

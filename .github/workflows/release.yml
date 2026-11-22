@@ -1,0 +1,142 @@
+name: Release
+
+# Push a tag like v0.2.0 to publish a release (R11): the Windows installer, the unsigned iPhone app,
+# the SideStore/AltStore source and SHA-256 hashes, all built here in public CI (D-25: never signed).
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build (no v), e.g. 0.2.0. Manual runs build the files but don't publish."
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  VERSION: ${{ github.event.inputs.version || github.ref_name }}
+  VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\vcpkg-cache
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version
+        shell: pwsh
+        run: echo "VERSION=$($env:VERSION -replace '^v','')" >> $env:GITHUB_ENV
+
+      - name: Prepare vcpkg cache folder
+        run: New-Item -ItemType Directory -Force vcpkg-cache | Out-Null
+
+      - name: Restore vcpkg binary cache
+        uses: actions/cache@v4
+        with:
+          path: vcpkg-cache
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('windows/vcpkg.json') }}
+
+      - name: Build
+        run: |
+          cmake -S windows -B build
+          cmake --build build --config Release --parallel
+
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure -E VcamSelftest
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Install Inno Setup
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
+
+      - name: Build installer
+        run: .\windows\scripts\build-installer.ps1 -Version $env:VERSION
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: build/installer/*.exe
+
+  ios:
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: ios
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version
+        run: echo "VERSION=${VERSION#v}" >> "$GITHUB_ENV"
+
+      - name: Build unsigned app
+        run: |
+          set -o pipefail
+          brew install xcodegen
+          xcodegen generate
+          xcodebuild build \
+            -project Cabled.xcodeproj -scheme Cabled -configuration Release \
+            -sdk iphoneos -destination "generic/platform=iOS" \
+            -derivedDataPath build \
+            MARKETING_VERSION="$VERSION" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            | tail -n 30
+
+      - name: Package IPA
+        run: |
+          mkdir Payload
+          cp -R build/Build/Products/Release-iphoneos/Cabled.app Payload/
+          zip -qry Cabled.ipa Payload
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa
+          path: ios/Cabled.ipa
+
+  publish:
+    needs: [windows, ios]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Source + hashes
+        run: |
+          VERSION="${VERSION#v}"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          python3 .github/scripts/sidestore_source.py "$VERSION" dist/Cabled.ipa dist/apps.json
+          (cd dist && sha256sum *.exe Cabled.ipa apps.json > SHA256SUMS.txt && cat SHA256SUMS.txt)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-files
+          path: dist/*
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > notes.md <<EOF
+          ## Install
+
+          **Windows 11:** download \`Cabled-Setup-$VERSION.exe\` and run it. It isn't code-signed, so Windows
+          SmartScreen says "Windows protected your PC": choose **More info → Run anyway**, then allow the
+          one admin prompt.
+
+          **iPhone (iOS 17+):** in SideStore, add this source once:
+          \`https://github.com/${{ github.repository }}/releases/latest/download/apps.json\`
+          then install Cabled from it. Or download \`Cabled.ipa\` below and open it with SideStore.
+
+          Check downloads against \`SHA256SUMS.txt\`. Everything here was built by this repository's public CI.
+          EOF
+          gh release create "$GITHUB_REF_NAME" dist/*.exe dist/Cabled.ipa dist/apps.json dist/SHA256SUMS.txt \
+            --title "Cabled $VERSION" --notes-file notes.md --prerelease

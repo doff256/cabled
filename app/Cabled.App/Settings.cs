@@ -53,6 +53,7 @@ public sealed class AppSettings
 {
     public int Version { get; set; } = 1;
     public bool KeepRunningInTray { get; set; } = true;
+    public bool OnboardingDone { get; set; }
     public string? LastDevice { get; set; }
 }
 

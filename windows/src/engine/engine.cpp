@@ -1,4 +1,4 @@
-#include "engine.h"
+﻿#include "engine.h"
 
 #include "decoder.h"
 #include "frame_convert.h"
@@ -47,7 +47,7 @@ nlohmann::json EngineStatus::toJson() const {
             {"headline", headline},
             {"detail", detail},
             {"transport", transport},
-            {"device", {{"model", deviceModel}, {"system", deviceSystem}, {"id", deviceId}, {"companion", companionVersion}}},
+            {"device", {{"model", deviceModel}, {"system", deviceSystem}, {"id", deviceId}, {"companion", companionVersion}, {"signingExpiry", signingExpiry}}},
             {"video", {{"width", width}, {"height", height}, {"fps", fps}, {"mbps", mbps}, {"decodeMs", decodeMs},
                        {"latencyMs", latencyMs}, {"hardwareDecode", hardwareDecode}}},
             {"counters", {{"framesDecoded", framesDecoded}, {"keyframeRequests", keyframeRequests},
@@ -555,6 +555,10 @@ void Engine::Impl::runSession(net::Socket& s) {
         st.deviceModel = peer.value("model", "");
         st.deviceSystem = peer.value("system", "");
         st.companionVersion = peer.value("appVersion", "");
+        // ISO 8601, or null for Xcode/developer installs that don't expire on a 7-day clock (R-22).
+        st.signingExpiry = peer.contains("signingExpiry") && peer["signingExpiry"].is_string()
+                               ? peer["signingExpiry"].get<std::string>()
+                               : std::string();
     }
     if (!proto::isCompatible(peerVersion)) {
         setState(EngineState::Incompatible, "Update the Cabled app on your iPhone",

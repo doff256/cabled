@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -32,13 +32,13 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="Assets\Cabled.ico" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\Cabled.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!-- The native engine and its FFmpeg DLLs ship next to Cabled.exe. -->
   <ItemGroup>
     <None Include="$(CabledNativeDir)cabled_core.dll;$(CabledNativeDir)avcodec-*.dll;$(CabledNativeDir)avutil-*.dll;$(CabledNativeDir)swscale-*.dll"
-          Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+          Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Visible="false" />
   </ItemGroup>
 
   <Target Name="CheckNativeEngine" BeforeTargets="Build">
