@@ -22,6 +22,8 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\Cabled.ico</ApplicationIcon>
+    <!-- The installer build puts output in build\app-bin; never treat this folder's own bin\ or obj\ as content. -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);bin\**;obj\**</DefaultItemExcludes>
     <!-- Where the C++ build put cabled_core.dll and the FFmpeg DLLs. -->
     <CabledNativeDir Condition="'$(CabledNativeDir)' == ''">$(MSBuildThisFileDirectory)..\..\build\bin\Release\</CabledNativeDir>
   </PropertyGroup>
