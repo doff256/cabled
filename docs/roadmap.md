@@ -41,7 +41,9 @@ One focused Claude Code session on one milestone, ending in a **buildable, teste
 | R8 | ✅ Fixed zoom + following with a box-in-box you can drag, group framing, focus/exposure/WB + click-to-focus, capture pins, thermal step-down, fast format switch. Tested on the iPhone Air (build 10). P1 closed (M2) | [runs/R8.md](runs/R8.md) |
 | R9 | ✅ side-panel pages (Framing, Camera, Image, Presets, App), image adjustments (brightness/contrast/saturation/sharpness/mirror, rotation override), per-iPhone settings + presets, tray, start at login, single instance, app icon. Tested by the owner (tabs widened in R11) | [runs/R9.md](runs/R9.md) |
 | R11 | ✅ Inno Setup installer (camera registration, upgrade, uninstall), first-run setup guide (Apple service → iPhone → companion), diagnostics window + Copy report, signing-expiry warning, release workflow (installer + IPA + SideStore source + hashes), user README. Installed and tested by the owner | [runs/R11.md](runs/R11.md) |
-| R12 | In progress: iPhone camera locked to BT.709 (no silent Display P3), colour check with reference bars, app matrix for the owner. iPhone build 12 | [runs/R12.md](runs/R12.md) |
+| R12 | ✅ (code) iPhone camera locked to BT.709, colour diagnostics, reference bars. App matrix still for the owner (fixes go to 1.0.x) | [runs/R12.md](runs/R12.md) |
+| R13 | ✅ GPU-reset decoder recovery, thermal hysteresis + heat notice, faster image adjustments, soak tool + 20-min soak. Owner thermal/sleep checks listed | [runs/R13.md](runs/R13.md) |
+| R14 | ✅ Bug bash, docs, version 1.0.0 (iPhone build 13), release v1.0.0 | [runs/R14.md](runs/R14.md) |
 
 ### Phase 0: spikes (do these first; they can change the plan)
 | Run | Goal | Exit criteria | You do |

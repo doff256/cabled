@@ -17,7 +17,7 @@ if(NOT DEFINED CMAKE_TOOLCHAIN_FILE)
     endforeach()
 endif()
 
-project(Cabled VERSION 0.1.0 LANGUAGES CXX)
+project(Cabled VERSION 1.0.0 LANGUAGES CXX)
 
 # --- Product identity: the one place the (working) name lives on Windows (D-23) ---
 set(CABLED_PRODUCT_NAME "Cabled" CACHE STRING "User-visible product name")

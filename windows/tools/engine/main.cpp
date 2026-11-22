@@ -69,6 +69,11 @@ int main(int argc, char** argv) {
             return a == "--help" || a == "-h" ? 0 : 64;
         }
     }
+    if (!config.virtualCamera) {
+        // With no camera there's no viewer, and the engine switches video off when nobody watches
+        // (R5). A frame sink counts as a viewer, so --no-vcam really decodes (found in the R13 soak).
+        config.frameSink = [](const AVFrame*, uint32_t) {};
+    }
     config.log = [](const std::string& line) {
         std::printf("  %s\n", line.c_str());
         std::fflush(stdout);

@@ -8,7 +8,7 @@
     <!-- Product name lives in one place per platform (D-23); the exe name follows it. -->
     <AssemblyName>Cabled</AssemblyName>
     <Product>Cabled</Product>
-    <Version>0.1.0</Version>
+    <Version>1.0.0</Version>
     <UseWinUI>true</UseWinUI>
     <Platforms>x64</Platforms>
     <Platform>x64</Platform>

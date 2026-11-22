@@ -82,4 +82,23 @@ uint32_t defaultBitrate(uint32_t width, uint32_t height, double fps);
 // linkMbps <= 0 means unknown (assume a USB 2 iPhone, ~200 Mbit/s usable).
 Choice negotiate(const PhoneCaps& caps, const Want& want, double linkMbps);
 
+// Thermal hysteresis (R13). A phone hovering between "fair" and "serious" would otherwise switch the
+// capture back and forth, each switch a visible glitch. Hotter states apply at once; cooler ones
+// only after the phone has stayed cooler for `holdSeconds`.
+class ThermalGovernor {
+public:
+    explicit ThermalGovernor(double holdSeconds = 60) : hold_(holdSeconds) {}
+    // raw: the phone's latest state ("nominal", "fair", "serious", "critical"). Returns the state
+    // the negotiator should plan for.
+    const std::string& update(const std::string& raw, double nowSeconds);
+    const std::string& effective() const { return effective_; }
+
+private:
+    double hold_;
+    std::string effective_ = "nominal";
+    double coolerSince_ = -1;  // when raw first dropped below effective_ (-1 = it hasn't)
+};
+
+int thermalLevel(const std::string& state);  // nominal 0 .. critical 3 (unknown = 0)
+
 }  // namespace cabled::engine

@@ -42,31 +42,53 @@ void ImageAdjuster::apply(const vcam::FrameView& f, const ImageAdjust& a) {
         // Sharpen first (on the original luma), then tone, then mirror.
         if (a.sharpness >= 1e-3 && w >= 3 && h >= 3) {
             // Unsharp mask with a 3x3 box blur; keeps two original rows so it can work in place.
+            // The box blur is separable: horizontal 3-sums per row, then three rows added. That's
+            // ~3 additions per pixel instead of 9 loads (R14: 4K60 must fit in a frame).
             const int k = int(std::lround(std::clamp(a.sharpness, 0.0, 1.0) * 256 * 1.5));  // amount, /256
-            rows_.resize(size_t(w) * 3);
-            uint8_t* prev = rows_.data();
-            uint8_t* cur = prev + w;
-            uint8_t* next = cur + w;
+            rows_.resize(size_t(w) * 2);
+            hsums_.resize(size_t(w) * 3);
+            uint8_t* cur = rows_.data();    // this row's original luma (before it's overwritten)
+            uint8_t* next = cur + w;        // next row's original luma
+            uint16_t* hPrev = hsums_.data();
+            uint16_t* hCur = hPrev + w;
+            uint16_t* hNext = hCur + w;
+            auto hsum = [w](const uint8_t* r, uint16_t* out) {
+                out[0] = uint16_t(r[0] * 2 + r[1]);  // edges repeat the border pixel
+                for (uint32_t x = 1; x + 1 < w; ++x) out[x] = uint16_t(r[x - 1] + r[x] + r[x + 1]);
+                out[w - 1] = uint16_t(r[w - 2] + r[w - 1] * 2);
+            };
             std::memcpy(cur, f.plane0, w);
-            std::memcpy(prev, cur, w);
+            hsum(cur, hCur);
+            std::memcpy(hPrev, hCur, size_t(w) * sizeof(uint16_t));
+            const int64_t gain = (int64_t(k) << 16) / (9 * 256);  // detail * gain >> 16 == detail * k / (9*256)
             for (uint32_t y = 0; y < h; ++y) {
                 uint8_t* out = f.plane0 + size_t(y) * f.pitch0;
-                if (y + 1 < h) std::memcpy(next, f.plane0 + size_t(y + 1) * f.pitch0, w);
-                else std::memcpy(next, cur, w);
-                for (uint32_t x = 0; x < w; ++x) {
-                    const uint32_t l = x ? x - 1 : 0, r = x + 1 < w ? x + 1 : x;
-                    const int sum = prev[l] + prev[x] + prev[r] + cur[l] + cur[x] + cur[r] + next[l] + next[x] + next[r];
-                    const int detail = cur[x] * 9 - sum;  // 9 x (pixel - blur)
-                    out[x] = uint8_t(std::clamp(cur[x] + detail * k / (9 * 256), 16, 235));
+                if (y + 1 < h) {
+                    std::memcpy(next, f.plane0 + size_t(y + 1) * f.pitch0, w);
+                    hsum(next, hNext);
+                } else {
+                    std::memcpy(hNext, hCur, size_t(w) * sizeof(uint16_t));
                 }
-                std::swap(prev, cur);  // prev <- this row's original
-                std::swap(cur, next);  // cur  <- next row's original
+                for (uint32_t x = 0; x < w; ++x) {
+                    const int c = cur[x];
+                    const int detail = c * 9 - (hPrev[x] + hCur[x] + hNext[x]);  // 9 x (pixel - blur)
+                    const int v = c + int((detail * gain) >> 16);
+                    out[x] = luma_[size_t(v < 16 ? 16 : v > 235 ? 235 : v)];  // tone folded in (identity if neutral)
+                }
+                std::swap(cur, next);
+                uint16_t* t = hPrev;
+                hPrev = hCur;
+                hCur = hNext;
+                hNext = t;
             }
         }
-        for (uint32_t y = 0; y < h; ++y) {
-            uint8_t* row = f.plane0 + size_t(y) * f.pitch0;
-            if (tone) for (uint32_t x = 0; x < w; ++x) row[x] = luma_[row[x]];
-            if (a.mirror) std::reverse(row, row + w);
+        const bool sharpened = a.sharpness >= 1e-3 && w >= 3 && h >= 3;  // tone already applied above
+        if ((tone && !sharpened) || a.mirror) {
+            for (uint32_t y = 0; y < h; ++y) {
+                uint8_t* row = f.plane0 + size_t(y) * f.pitch0;
+                if (tone && !sharpened) for (uint32_t x = 0; x < w; ++x) row[x] = luma_[row[x]];
+                if (a.mirror) std::reverse(row, row + w);
+            }
         }
         for (uint32_t y = 0; y < h / 2; ++y) {
             uint8_t* row = f.plane1 + size_t(y) * f.pitch1;

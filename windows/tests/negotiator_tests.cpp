@@ -166,3 +166,18 @@ TEST(Negotiator, BitrateTable) {
     EXPECT_NEAR(defaultBitrate(3840, 2160, 30) / 1e6, 60, 7);
     EXPECT_NEAR(defaultBitrate(3840, 2160, 60) / 1e6, 100, 8);
 }
+
+// R13: a phone hovering at the edge mustn't flip the capture back and forth.
+TEST(Negotiator, ThermalGovernorStepsDownAtOnceAndUpSlowly) {
+    ThermalGovernor g(60);
+    EXPECT_EQ(g.update("fair", 0), "fair");
+    EXPECT_EQ(g.update("serious", 1), "serious");     // hotter: immediately
+    EXPECT_EQ(g.update("fair", 2), "serious");        // cooler: wait
+    EXPECT_EQ(g.update("serious", 30), "serious");    // back up: the clock restarts
+    EXPECT_EQ(g.update("fair", 31), "serious");
+    EXPECT_EQ(g.update("fair", 90), "serious");       // 59 s cool
+    EXPECT_EQ(g.update("nominal", 92), "nominal");    // 61 s cool: step back up
+    EXPECT_EQ(g.update("critical", 93), "critical");
+    EXPECT_EQ(thermalLevel("critical"), 3);
+    EXPECT_EQ(thermalLevel(""), 0);
+}

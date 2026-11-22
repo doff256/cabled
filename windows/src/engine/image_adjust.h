@@ -35,7 +35,8 @@ private:
     bool lutValid_ = false;
     std::array<uint8_t, 256> luma_{};    // brightness + contrast (Y, or each RGB channel)
     std::array<uint8_t, 256> chroma_{};  // saturation (U, V)
-    std::vector<uint8_t> rows_;          // sharpening scratch: the previous source rows
+    std::vector<uint8_t> rows_;          // sharpening scratch: original luma rows
+    std::vector<uint16_t> hsums_;        // sharpening scratch: horizontal 3-sums of three rows
 };
 
 }  // namespace cabled::engine

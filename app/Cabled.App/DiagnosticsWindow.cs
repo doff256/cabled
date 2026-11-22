@@ -107,14 +107,16 @@ internal sealed class DiagnosticsWindow : Window
             var sb = new StringBuilder();
             sb.AppendLine($"State        {s.GetProperty("state").GetString()} · {s.GetProperty("headline").GetString()}");
             sb.AppendLine($"iPhone       {Str(d, "model")} · iOS {Str(d, "system")} · companion {Str(d, "companion")} · signing expires {Expiry(Str(d, "signingExpiry"))}");
-            sb.AppendLine($"Phone        thermal {Str(phone, "thermal")} · battery {Battery(phone)}");
+            string limit = Str(phone, "thermalLimit");
+            sb.AppendLine($"Phone        thermal {Str(phone, "thermal")}{(limit.Length > 0 ? $" (capture reduced for heat: {limit})" : "")} · battery {Battery(phone)}");
             sb.AppendLine($"USB link     {link.GetProperty("mbps").GetDouble():0} Mbit/s measured · asked phone for {Str(link, "config")}");
             sb.AppendLine($"Video in     {v.GetProperty("width").GetUInt32()}×{v.GetProperty("height").GetUInt32()} · {v.GetProperty("fps").GetDouble():0.0} fps · {v.GetProperty("mbps").GetDouble():0.0} Mbit/s");
             sb.AppendLine($"Decode       {(v.GetProperty("hardwareDecode").GetBoolean() ? "GPU (D3D11VA)" : "CPU (software fallback)")} · {v.GetProperty("decodeMs").GetDouble():0.0} ms per frame");
             sb.AppendLine($"Latency      capture → decoded {v.GetProperty("latencyMs").GetDouble():0.0} ms");
             string colour = s.TryGetProperty("controls", out var ctl) ? Str(ctl, "colorSpace") : "";
             sb.AppendLine($"Colour       camera {(colour.Length > 0 ? colour : "?")} (should be rec709) → BT.709 limited range to apps");
-            sb.AppendLine($"Counters     {c.GetProperty("framesDecoded").GetUInt64()} frames · {c.GetProperty("keyframeRequests").GetUInt64()} keyframe requests (≈ drops) · {c.GetProperty("reconnects").GetUInt64()} reconnects");
+            sb.AppendLine($"Counters     {c.GetProperty("framesDecoded").GetUInt64()} frames · {c.GetProperty("keyframeRequests").GetUInt64()} keyframe requests (≈ drops) · {c.GetProperty("reconnects").GetUInt64()} reconnects" +
+                          (s.TryGetProperty("decoderResets", out var dr) && dr.GetUInt64() > 0 ? $" · {dr.GetUInt64()} decoder rebuilds" : ""));
             var vcam = s.GetProperty("vcam");
             sb.AppendLine($"Camera out   {(vcam.GetProperty("inUse").GetBoolean() ? "in use" : "not in use")} · {Str(vcam, "state")}");
             return sb.ToString();

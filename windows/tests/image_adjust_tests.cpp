@@ -1,7 +1,10 @@
-#include "image_adjust.h"
+﻿#include "image_adjust.h"
 
 #include <gtest/gtest.h>
 
+#include <chrono>
+#include <cstdio>
+#include <utility>
 #include <vector>
 
 using namespace cabled::engine;
@@ -118,4 +121,22 @@ TEST(ImageAdjust, Rgb32MirrorAndSaturation) {
     EXPECT_EQ(px[0], px[1]);  // grey
     EXPECT_EQ(px[1], px[2]);
     EXPECT_NEAR(px[0], 0.0722 * 50 + 0.7152 * 60 + 0.2126 * 70, 1);  // the right pixel came left
+}
+
+// Not a pass/fail check: prints the per-frame cost so the budget (1 frame = 16.7 ms at 60 fps) is visible.
+TEST(ImageAdjust, CostPerFrame) {
+    for (auto [w, h] : {std::pair{1920u, 1080u}, std::pair{3840u, 2160u}}) {
+        Nv12 a(w, h, 120, 100, 150);
+        ImageAdjust all;
+        all.brightness = 0.1;
+        all.contrast = 1.1;
+        all.saturation = 1.2;
+        all.sharpness = 0.5;
+        ImageAdjuster adj;
+        adj.apply(a.view(), all);  // warm-up (LUTs, scratch)
+        const auto t0 = std::chrono::steady_clock::now();
+        for (int i = 0; i < 10; ++i) adj.apply(a.view(), all);
+        const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count() / 10;
+        std::printf("[ cost     ] %ux%u all adjustments: %.2f ms/frame\n", w, h, ms);
+    }
 }

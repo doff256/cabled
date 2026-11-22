@@ -295,6 +295,15 @@ public sealed partial class MainWindow : Window
         string model = device.GetProperty("model").GetString() ?? "";
         string system = device.GetProperty("system").GetString() ?? "";
         DeviceText.Text = model.Length > 0 ? $"{DeviceNames.Friendly(model)} · iOS {system} · {s.GetProperty("transport").GetString()?.ToUpperInvariant()}" : "";
+        // R13 / windows-app.md: say when heat is limiting the picture, so a softer image has a reason.
+        if (s.TryGetProperty("phone", out var phoneEl) && phoneEl.TryGetProperty("thermalLimit", out var tl) &&
+            tl.GetString() is { Length: > 0 } limit)
+        {
+            Detail.Text = (string.IsNullOrEmpty(Detail.Text) ? "" : Detail.Text + " ") +
+                          (limit == "critical" ? "Your iPhone is very hot: reduced to 720p30 until it cools down."
+                                               : "Your iPhone is hot: reduced to 1080p30 until it cools down.");
+            Detail.Visibility = Visibility.Visible;
+        }
         // R-22: free signing runs out after 7 days. Warn while there's still time to refresh.
         if (device.TryGetProperty("signingExpiry", out var exp) && DateTimeOffset.TryParse(exp.GetString(), out var expiry))
         {

@@ -58,6 +58,8 @@ struct EngineStatus {
     bool vcamInUse = false;
     std::string thermal;
     double battery = -1;
+    std::string thermalLimit;   // R13: "serious"/"critical" while capture is stepped down for heat, else ""
+    uint64_t decoderResets = 0; // R13: decoder rebuilt after repeated failures (GPU reset / TDR)
     double linkMbps = 0;     // measured at connect (R5)
     std::string videoConfig;  // what was negotiated, e.g. "1920x1080@60 H.264 40 Mbit/s"
     // Cameras and zoom (R6). `cameras`: [{id, label, name, type, minZoom, maxZoom, presets}] in

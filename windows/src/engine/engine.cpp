@@ -63,7 +63,8 @@ nlohmann::json EngineStatus::toJson() const {
              }()},
             {"controls", controls},
             {"capture", capture},
-            {"phone", {{"thermal", thermal}, {"battery", battery}}}};
+            {"phone", {{"thermal", thermal}, {"battery", battery}, {"thermalLimit", thermalLimit}}},
+            {"decoderResets", decoderResets}};
 }
 
 namespace {
@@ -206,6 +207,9 @@ struct Engine::Impl {
     FramingSettings framingSettings;
     FramingSettings framingKnobs;  // prefsMutex: tightness, speed, group as set by the user
     ImageAdjust imageAdjust;       // prefsMutex (R9)
+    ThermalGovernor thermalGovernor;  // statusMutex (R13)
+    static constexpr int kDecoderResetAfter = 8;  // failed packets in a row before the decoder is rebuilt
+    int decoderResetsThisSession = 0;             // decode thread
 
     // R8 (prefsMutex): remembered camera controls, pinned capture.
     nlohmann::json rememberedControls = nlohmann::json::object();
@@ -353,7 +357,9 @@ struct Engine::Impl {
         w.framing = framingEnabled;
         {
             std::lock_guard<std::mutex> lock(statusMutex);
-            w.thermal = st.thermal;  // F7: hot phone -> lighter job
+            // F7: hot phone -> lighter job; R13: with hysteresis, so it doesn't flap.
+            w.thermal = thermalGovernor.update(st.thermal, double(proto::nowNs()) / 1e9);
+            st.thermalLimit = thermalLevel(w.thermal) >= 2 ? w.thermal : "";
         }
         std::lock_guard<std::mutex> lock(prefsMutex);
         // A zoomed shot wants extra pixels to crop from, following or not (framing off still zooms).
@@ -634,6 +640,7 @@ void Engine::Impl::runSession(net::Socket& s) {
     waitingForKeyframe = true;
     lastMessageNs = proto::nowNs();
     sessionActive = true;
+    decoderResetsThisSession = 0;  // a new session gets the hardware decoder again
     std::thread decodeThread([&] { decodeLoop(decoder); });
 
     {
@@ -775,6 +782,11 @@ void Engine::Impl::runSession(net::Socket& s) {
 
 void Engine::Impl::decodeLoop(Decoder& decoder) {
     std::string err;
+    // R13: a GPU reset (TDR, driver update, sleep on some laptops) leaves the D3D11VA decoder dead:
+    // every packet fails, keyframes included. After a run of failures, build a new decoder (new
+    // D3D11 device); if the hardware one keeps failing, fall back to software for this session.
+    int failuresInARow = 0;
+    bool softwareOnly = false;
     while (true) {
         Packet p;
         {
@@ -785,7 +797,7 @@ void Engine::Impl::decodeLoop(Decoder& decoder) {
             queue.pop_front();
         }
         if (p.hevc != decoder.isHevc()) {  // negotiation switched codecs
-            if (!decoder.open(cfg.hardwareDecode, &err, p.hevc)) {
+            if (!decoder.open(cfg.hardwareDecode && !softwareOnly, &err, p.hevc)) {
                 log("Decoder for " + std::string(p.hevc ? "HEVC" : "H.264") + " failed: " + err);
                 continue;
             }
@@ -794,10 +806,28 @@ void Engine::Impl::decodeLoop(Decoder& decoder) {
             decoder.flush();
         }
         const uint64_t t0 = proto::nowNs();
-        const bool ok =
-            decoder.decode(p.annexB.data(), p.annexB.size(), p.seq, [&](const AVFrame* f) { onFrame(f, p, t0); }, &err);
+        bool produced = false;
+        const bool ok = decoder.decode(p.annexB.data(), p.annexB.size(), p.seq,
+                                       [&](const AVFrame* f) {
+                                           produced = true;
+                                           onFrame(f, p, t0);
+                                       },
+                                       &err);
         hardwareActive = decoder.hardwareActive();
+        if (ok && produced) failuresInARow = 0;
         if (!ok) {
+            if (++failuresInARow >= kDecoderResetAfter) {
+                const bool wasHardware = decoder.hardwareRequested();
+                softwareOnly = softwareOnly || (wasHardware && decoderResetsThisSession > 0);
+                ++decoderResetsThisSession;
+                const bool hw = cfg.hardwareDecode && !softwareOnly;
+                log("Decoder failed " + std::to_string(failuresInARow) + " times in a row (" + err +
+                    "); rebuilding it" + (hw ? "" : " in software"));
+                if (!decoder.open(hw, &err, decoder.isHevc()) && hw) decoder.open(false, &err, decoder.isHevc());
+                failuresInARow = 0;
+                std::lock_guard<std::mutex> lock(statusMutex);
+                ++st.decoderResets;
+            }
             waitingForKeyframe = true;
             requestKeyframe("decode error: " + err);
         }

@@ -1,10 +1,10 @@
-# Cabled
+﻿# Cabled
 
 Turn an iPhone into a high-quality **wired** webcam for Windows. Plug in a cable, open the app, and the camera works.
 
 USB only. No Wi-Fi, no accounts, no subscriptions. The iPhone app is sideloaded with a free Apple ID (SideStore or AltStore).
 
-> **Status: pre-release.** It works end to end (up to 4K, 1080p120, auto-framing, camera controls), but it's still being tested. See [docs/roadmap.md](docs/roadmap.md).
+> **Status: 1.0.** Up to 4K, 1080p120, auto-framing, lens and camera controls, image adjustments and presets. Windows 11 only for now. Known limits: [docs/runs/R14.md](docs/runs/R14.md).
 
 ## Install on Windows
 

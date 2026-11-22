@@ -212,4 +212,24 @@ Choice negotiate(const PhoneCaps& caps, const Want& want, double linkMbps) {
     return c;
 }
 
+int thermalLevel(const std::string& state) {
+    if (state == "fair") return 1;
+    if (state == "serious") return 2;
+    if (state == "critical") return 3;
+    return 0;
+}
+
+const std::string& ThermalGovernor::update(const std::string& raw, double now) {
+    const int rawLevel = thermalLevel(raw), current = thermalLevel(effective_);
+    if (rawLevel >= current) {  // hotter (or same): act now
+        if (rawLevel > current) effective_ = raw.empty() ? "nominal" : raw;
+        coolerSince_ = -1;
+    } else if (coolerSince_ < 0) {
+        coolerSince_ = now;  // cooled down: start the clock
+    } else if (now - coolerSince_ >= hold_) {
+        effective_ = raw.empty() ? "nominal" : raw;  // stayed cool long enough
+        coolerSince_ = -1;
+    }
+    return effective_;
+}
 }  // namespace cabled::engine
