@@ -53,6 +53,10 @@ CABLED_API void cabled_engine_set_controls(cabled_engine* engine, const char* co
 CABLED_API void cabled_engine_tap_focus(cabled_engine* engine, double x, double y);
 /* Box-in-box drag: crop centre at x, y (0..1 of the whole camera view). Negative = remove the nudge. */
 CABLED_API void cabled_engine_move_framing(cabled_engine* engine, double x, double y);
+/* Image adjustments (R9): brightness -1..1 (0), contrast 0..2 (1), saturation 0..2 (1),
+   sharpness 0..1 (0), mirror 0/1. The defaults in brackets are neutral. */
+CABLED_API void cabled_engine_set_image(cabled_engine* engine, double brightness, double contrast, double saturation,
+                                        double sharpness, int32_t mirror);
 /* Pin capture size / fps; 0 = automatic. */
 CABLED_API void cabled_engine_set_capture(cabled_engine* engine, int32_t width, int32_t height, double fps);
 /* Small picture of the whole camera view; same contract as copy_preview. */

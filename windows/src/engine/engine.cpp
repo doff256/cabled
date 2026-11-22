@@ -205,6 +205,7 @@ struct Engine::Impl {
     Framer framer;
     FramingSettings framingSettings;
     FramingSettings framingKnobs;  // prefsMutex: tightness, speed, group as set by the user
+    ImageAdjust imageAdjust;       // prefsMutex (R9)
 
     // R8 (prefsMutex): remembered camera controls, pinned capture.
     nlohmann::json rememberedControls = nlohmann::json::object();
@@ -824,11 +825,18 @@ void Engine::Impl::onFrame(const AVFrame* f, const Packet& p, uint64_t decodeSta
         vcam.activeFormat(outW, outH, outFps);
     }
     const std::vector<Face> faces = parseFaces(p.meta);
+    ImageAdjust adjust;
     {
         std::lock_guard<std::mutex> lock(prefsMutex);
         framingSettings = framingKnobs;
+        adjust = imageAdjust;
     }
     framingSettings.enabled = framingEnabled;
+    previewConverter.setAdjust(adjust);  // the preview shows exactly what the camera sends
+    if (cfg.virtualCamera) {
+        std::lock_guard<std::mutex> lock(vcamMutex);
+        vcam.setAdjust(adjust);
+    }
     const CropRect crop = framer.update(faces, uint32_t(f->width), uint32_t(f->height), outW, outH,
                                         double(p.captureNs) / 1e9, framingSettings);
     {
@@ -1071,6 +1079,11 @@ void Engine::moveFraming(double centerX, double centerY) {
     impl_->framingKnobs.offsetY = std::clamp(offsetY, -2.0, 2.0);
 }
 
+void Engine::setImageAdjust(const ImageAdjust& adjust) {
+    std::lock_guard<std::mutex> lock(impl_->prefsMutex);
+    impl_->imageAdjust = adjust;
+}
+
 void Engine::setControls(const nlohmann::json& controls) {
     if (!controls.is_object()) return;
     {
@@ -1095,6 +1108,10 @@ void Engine::tapToFocus(double x, double y) {
         h = impl_->lastSrcH;
     }
     if (!w || !h) return;
+    {
+        std::lock_guard<std::mutex> lock(impl_->prefsMutex);
+        if (impl_->imageAdjust.mirror) x = 1.0 - x;  // the picture clicked on was flipped
+    }
     // Output picture -> whole camera frame (normalized); the phone maps it to sensor coordinates.
     const double fx = std::clamp((crop.x + std::clamp(x, 0.0, 1.0) * crop.w) / w, 0.0, 1.0);
     const double fy = std::clamp((crop.y + std::clamp(y, 0.0, 1.0) * crop.h) / h, 0.0, 1.0);

@@ -133,6 +133,18 @@ void cabled_engine_move_framing(cabled_engine* e, double x, double y) {
     if (e) e->engine->moveFraming(x, y);
 }
 
+void cabled_engine_set_image(cabled_engine* e, double brightness, double contrast, double saturation,
+                             double sharpness, int32_t mirror) {
+    if (!e) return;
+    cabled::engine::ImageAdjust a;
+    a.brightness = brightness;
+    a.contrast = contrast;
+    a.saturation = saturation;
+    a.sharpness = sharpness;
+    a.mirror = mirror != 0;
+    e->engine->setImageAdjust(a);
+}
+
 void cabled_engine_set_capture(cabled_engine* e, int32_t width, int32_t height, double fps) {
     if (e) e->engine->setCapture(uint32_t(std::max(0, width)), uint32_t(std::max(0, height)), fps);
 }

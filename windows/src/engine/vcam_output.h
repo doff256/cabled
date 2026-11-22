@@ -17,6 +17,7 @@ public:
 
     // Converts and publishes the frame if an app is streaming. Opens the ring lazily (retry 1/s).
     State publish(const AVFrame* frame, int64_t captureQpc, const CropRect* crop = nullptr);
+    void setAdjust(const ImageAdjust& a) { converter_.setAdjust(a); }  // R9 image adjustments
     // Same for a top-down BGRA image (status cards).
     State publishBgra(const uint8_t* bgra, uint32_t width, uint32_t height, uint32_t stride, int64_t captureQpc);
     // Size the consuming app chose (false if no app is streaming).

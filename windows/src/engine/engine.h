@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 // The Cabled engine (R4): finds the phone, keeps the connection alive, decodes video and feeds the
 // virtual camera and the preview. Long-running; reconnects by itself (docs/architecture.md state
 // machine, docs/reliability-and-testing.md F1-F5, F9, F17).
@@ -8,6 +8,7 @@
 //   decode      bounded packet queue -> FFmpeg -> virtual camera + preview
 //   housekeeping  pings + watchdog, status cards into the camera when there's no live video, stats
 
+#include "image_adjust.h"
 #include "net.h"
 
 #include <nlohmann/json.hpp>
@@ -124,6 +125,8 @@ public:
     // Box-in-box drag: put the crop's centre here (normalized whole camera view). The nudge is kept
     // relative to the face, so following carries on. Negative values remove the nudge.
     void moveFraming(double centerX, double centerY);
+    // R9: image adjustments for the camera and the preview (neutral = off, no cost).
+    void setImageAdjust(const ImageAdjust& adjust);
     // Pin the capture size / frame rate (0 = automatic).
     void setCapture(uint32_t width, uint32_t height, double fps);
     // Small picture of the whole camera view (the crop is status().framingInfo["crop"]).

@@ -21,6 +21,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\Cabled.ico</ApplicationIcon>
     <!-- Where the C++ build put cabled_core.dll and the FFmpeg DLLs. -->
     <CabledNativeDir Condition="'$(CabledNativeDir)' == ''">$(MSBuildThisFileDirectory)..\..\build\bin\Release\</CabledNativeDir>
   </PropertyGroup>
@@ -28,6 +29,10 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.7.0" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2957" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Assets\Cabled.ico" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!-- The native engine and its FFmpeg DLLs ship next to Cabled.exe. -->

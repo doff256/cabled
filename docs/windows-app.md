@@ -1,4 +1,4 @@
-# Windows application
+﻿# Windows application
 
 ## Modules (mapped to the spec's architecture tree)
 
@@ -44,7 +44,7 @@ The engine has **no UI dependency** and can run headless. That's what the test h
 - **App**: start at login (on by default), tray behaviour, about/licences (MIT + FFmpeg LGPL notice).
 
 ### Window and tray behaviour (D-20)
-- Closing the window while any app is using the virtual camera → minimise to tray. The stream keeps going.
+- Closing the window → keep running in the tray (R9: an App setting, on by default, so a phone plugged in later still works). The stream keeps going. Quit is in the tray menu. Only one Cabled runs per user; launching it again shows the running one.
 - **Start at login, in the tray:** offered in onboarding and **ticked by default**, and can be changed under App settings. It's registered per user (HKCU Run key), not as a service. The tray agent uses almost no resources while idle (only the usbmux `Listen` socket). Combined with the iPhone's Shortcuts auto-launch, that gets the full R-03 experience: plug in, and Zoom has a camera, with no clicks.
 
 ## Settings storage

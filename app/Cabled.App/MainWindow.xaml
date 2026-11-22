@@ -53,13 +53,25 @@
             </Grid>
         </Border>
 
-        <!-- Side panel: framing, camera, quality (R8) -->
-        <ScrollViewer x:Name="SidePanel" Grid.Row="1" Grid.RowSpan="2" Grid.Column="1"
-                      VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
-            <StackPanel Spacing="20" Padding="0,0,12,0">
+        <!-- Side panel (R8, pages in R9): the settings sit next to the preview so every change is
+             seen as it's made. -->
+        <Grid x:Name="SidePanel" Grid.Row="1" Grid.RowSpan="2" Grid.Column="1" RowSpacing="8">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+            <SelectorBar x:Name="PageBar">
+                <SelectorBarItem Text="Framing" Tag="FramingPage" IsSelected="True" />
+                <SelectorBarItem Text="Camera" Tag="CameraPage" />
+                <SelectorBarItem Text="Image" Tag="ImagePage" />
+                <SelectorBarItem Text="Presets" Tag="PresetsPage" />
+                <SelectorBarItem Text="App" Tag="AppPage" />
+            </SelectorBar>
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <Grid Padding="0,0,12,0">
 
                 <!-- Framing -->
-                <StackPanel Spacing="8">
+                <StackPanel x:Name="FramingPage" Spacing="8">
                     <Grid>
                         <TextBlock Text="Framing" Style="{StaticResource BodyStrongTextBlockStyle}" VerticalAlignment="Center" />
                         <ToggleSwitch x:Name="FramingSwitch" HorizontalAlignment="Right" OnContent="" OffContent=""
@@ -104,9 +116,8 @@
                     </Grid>
                 </StackPanel>
 
-                <!-- Camera: focus, exposure, white balance -->
-                <StackPanel Spacing="8">
-                    <TextBlock Text="Camera" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                <!-- Camera: focus, exposure, white balance, quality -->
+                <StackPanel x:Name="CameraPage" Spacing="8" Visibility="Collapsed">
                     <Grid>
                         <TextBlock Text="Focus" VerticalAlignment="Center" />
                         <ToggleSwitch x:Name="FocusAutoSwitch" HorizontalAlignment="Right" OnContent="Auto"
@@ -147,11 +158,9 @@
                     <TextBlock Text="Tip: click the preview to focus and expose there."
                                Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                </StackPanel>
 
-                <!-- Quality: pin the capture (R-58) -->
-                <StackPanel Spacing="8">
-                    <TextBlock Text="Quality" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                    <!-- Quality: pin the capture (R-58) -->
+                    <TextBlock Text="Quality" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,12,0,0" />
                     <Grid ColumnSpacing="8">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
@@ -175,8 +184,98 @@
                                Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                 </StackPanel>
-            </StackPanel>
+
+                <!-- Image: adjustments done on the PC, seen by every app (R9) -->
+                <StackPanel x:Name="ImagePage" Spacing="4" Visibility="Collapsed">
+                    <Grid>
+                        <TextBlock Text="Brightness" Style="{StaticResource CaptionTextBlockStyle}" />
+                        <TextBlock x:Name="BrightnessText" HorizontalAlignment="Right" Style="{StaticResource CaptionTextBlockStyle}" Text="0" />
+                    </Grid>
+                    <Slider x:Name="BrightnessSlider" Minimum="-100" Maximum="100" Value="0" IsThumbToolTipEnabled="False" />
+                    <Grid>
+                        <TextBlock Text="Contrast" Style="{StaticResource CaptionTextBlockStyle}" />
+                        <TextBlock x:Name="ContrastText" HorizontalAlignment="Right" Style="{StaticResource CaptionTextBlockStyle}" Text="0" />
+                    </Grid>
+                    <Slider x:Name="ContrastSlider" Minimum="-100" Maximum="100" Value="0" IsThumbToolTipEnabled="False" />
+                    <Grid>
+                        <TextBlock Text="Saturation" Style="{StaticResource CaptionTextBlockStyle}" />
+                        <TextBlock x:Name="SaturationText" HorizontalAlignment="Right" Style="{StaticResource CaptionTextBlockStyle}" Text="0" />
+                    </Grid>
+                    <Slider x:Name="SaturationSlider" Minimum="-100" Maximum="100" Value="0" IsThumbToolTipEnabled="False" />
+                    <Grid>
+                        <TextBlock Text="Sharpness" Style="{StaticResource CaptionTextBlockStyle}" />
+                        <TextBlock x:Name="SharpnessText" HorizontalAlignment="Right" Style="{StaticResource CaptionTextBlockStyle}" Text="0" />
+                    </Grid>
+                    <Slider x:Name="SharpnessSlider" Minimum="0" Maximum="100" Value="0" IsThumbToolTipEnabled="False" />
+                    <Grid Margin="0,8,0,0">
+                        <TextBlock Text="Mirror" VerticalAlignment="Center" />
+                        <ToggleSwitch x:Name="MirrorSwitch" HorizontalAlignment="Right" OnContent="" OffContent="" MinWidth="0" />
+                    </Grid>
+                    <ComboBox x:Name="RotationCombo" Header="Rotation" HorizontalAlignment="Stretch" SelectedIndex="0">
+                        <x:String>Auto (follows the phone)</x:String>
+                        <x:String>Landscape</x:String>
+                        <x:String>Portrait</x:String>
+                        <x:String>Landscape, upside down</x:String>
+                        <x:String>Portrait, upside down</x:String>
+                    </ComboBox>
+                    <Button x:Name="NeutralButton" Content="Reset to neutral" Margin="0,12,0,0" />
+                    <TextBlock Text="Mirror flips what every app receives. Most call apps already mirror your own view, so leave it off unless text looks backwards to others."
+                               Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap" Margin="0,8,0,0"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                </StackPanel>
+
+                <!-- Presets: framing + camera + image together, per iPhone (R9) -->
+                <StackPanel x:Name="PresetsPage" Spacing="8" Visibility="Collapsed">
+                    <TextBlock Text="A preset keeps framing, camera and image settings together. Presets belong to this iPhone."
+                               Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="PresetNameBox" PlaceholderText="Name, e.g. Desk, Evening" MaxLength="40" />
+                        <Button x:Name="SavePresetButton" Grid.Column="1" Content="Save" Style="{StaticResource AccentButtonStyle}" />
+                    </Grid>
+                    <ListView x:Name="PresetList" SelectionMode="Single" MinHeight="60" />
+                    <TextBlock x:Name="PresetEmptyText" Text="No presets yet." Style="{StaticResource CaptionTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button x:Name="ApplyPresetButton" Content="Apply" IsEnabled="False" />
+                        <Button x:Name="RenamePresetButton" Content="Rename" IsEnabled="False" />
+                        <Button x:Name="DeletePresetButton" Content="Delete" IsEnabled="False" />
+                    </StackPanel>
+                    <TextBlock Text="Rename uses the name typed above. Double-click a preset to apply it."
+                               Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                </StackPanel>
+
+                <!-- App: login, tray, about -->
+                <StackPanel x:Name="AppPage" Spacing="8" Visibility="Collapsed">
+                    <Grid>
+                        <TextBlock Text="Start at login, in the tray" VerticalAlignment="Center" />
+                        <ToggleSwitch x:Name="AutostartSwitch" HorizontalAlignment="Right" OnContent="" OffContent="" MinWidth="0" />
+                    </Grid>
+                    <Grid>
+                        <TextBlock Text="Keep running in the tray when closed" VerticalAlignment="Center" TextWrapping="Wrap"
+                                   Margin="0,0,64,0" />
+                        <ToggleSwitch x:Name="TraySwitch" HorizontalAlignment="Right" OnContent="" OffContent="" MinWidth="0"
+                                      IsOn="True" />
+                    </Grid>
+                    <TextBlock Text="With both on, plugging in your iPhone is enough: apps find Cabled Camera without opening anything."
+                               Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <TextBlock Text="About" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,12,0,0" />
+                    <TextBlock x:Name="AboutText" Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap" />
+                    <TextBlock Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               Text="Cabled is MIT-licensed. Video decoding uses FFmpeg (LGPL 2.1), shipped as separate DLLs you can replace. Cabled never checks for updates or sends anything over the network by itself." />
+                    <HyperlinkButton x:Name="ReleasesLink" Content="Check for updates (opens the releases page)" Padding="0" />
+                    <HyperlinkButton x:Name="SettingsFolderLink" Content="Open the settings folder" Padding="0" />
+                </StackPanel>
+            </Grid>
         </ScrollViewer>
+        </Grid>
 
         <!-- Lens + zoom (R6) -->
         <Grid x:Name="CameraControls" Grid.Row="2" ColumnSpacing="16" Visibility="Collapsed">

@@ -1,8 +1,9 @@
-#pragma once
+﻿#pragma once
 // Decoded frame -> the format the consuming app chose. Plain copy when it already matches (no
 // resampling, R-56); swscale otherwise. Temporary CPU path until the GPU pipeline (R7).
 
 #include "framing.h"
+#include "image_adjust.h"
 #include "vcam_shared.h"
 
 struct AVFrame;
@@ -23,9 +24,14 @@ public:
     // Same, from a top-down BGRA image (e.g. a rendered status card).
     bool convertBgra(const uint8_t* bgra, uint32_t width, uint32_t height, uint32_t stride, const vcam::FrameView& dst);
     bool lastWasCopy() const { return lastWasCopy_; }
+    // R9: applied to every converted video frame (not to status cards).
+    void setAdjust(const ImageAdjust& a) { adjust_ = a; }
 
 private:
+    bool convertRaw(const AVFrame* src, const vcam::FrameView& dst, const CropRect* crop);
     SwsContext* sws_ = nullptr;
+    ImageAdjust adjust_;
+    ImageAdjuster adjuster_;
     bool lastWasCopy_ = false;
 };
 

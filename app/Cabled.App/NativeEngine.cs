@@ -31,6 +31,8 @@ internal sealed partial class NativeEngine : IDisposable
     public void TapFocus(double x, double y) => Native.cabled_engine_tap_focus(_handle, x, y);
     public void MoveFraming(double x, double y) => Native.cabled_engine_move_framing(_handle, x, y);
     public void ResetFramingNudge() => Native.cabled_engine_move_framing(_handle, -1, -1);
+    public void SetImage(double brightness, double contrast, double saturation, double sharpness, bool mirror) =>
+        Native.cabled_engine_set_image(_handle, brightness, contrast, saturation, sharpness, mirror ? 1 : 0);
     public void SetCapture(int width, int height, double fps) => Native.cabled_engine_set_capture(_handle, width, height, fps);
 
     public unsafe bool TryCopyOverview(ref byte[] buffer, ref ulong seq, out int width, out int height)
@@ -132,6 +134,9 @@ internal sealed partial class NativeEngine : IDisposable
         public static partial void cabled_engine_set_controls(nint engine, string controlsJson);
         [LibraryImport(Dll)] public static partial void cabled_engine_tap_focus(nint engine, double x, double y);
         [LibraryImport(Dll)] public static partial void cabled_engine_move_framing(nint engine, double x, double y);
+        [LibraryImport(Dll)]
+        public static partial void cabled_engine_set_image(nint engine, double brightness, double contrast,
+                                                           double saturation, double sharpness, int mirror);
         [LibraryImport(Dll)] public static partial void cabled_engine_set_capture(nint engine, int width, int height, double fps);
         [LibraryImport(Dll)]
         public static partial int cabled_engine_copy_overview(nint engine, byte* buffer, int capacity, int* width,

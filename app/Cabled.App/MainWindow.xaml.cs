@@ -39,6 +39,15 @@ public sealed partial class MainWindow : Window
     private bool _dragging;
     private long _dragEndedAt;
     private double _grabDx, _grabDy;
+    // R9: settings, presets, tray
+    private const string ReleasesUrl = "https://github.com/doff256/cabled/releases";
+    private readonly AppSettings _app = SettingsStore.LoadApp();
+    private string? _deviceId;
+    private DeviceSettings? _device;
+    private readonly DispatcherQueueTimer _saveTimer;
+    private bool _applying;  // true while a saved look is being put into the controls
+    private TrayIcon? _tray;
+    private bool _quitting;
 
     public MainWindow(string? tcpTarget, bool debugFaces = false)
     {
@@ -156,6 +165,13 @@ public sealed partial class MainWindow : Window
         OverviewHost.PointerCaptureLost += (_, _) => EndDrag();
         OverviewHost.DoubleTapped += (_, _) => ResetNudge();
         NudgeResetButton.Click += (_, _) => ResetNudge();
+
+        // ---- R9: pages, image, presets, app settings, tray ----
+        _saveTimer = DispatcherQueue.CreateTimer();
+        _saveTimer.Interval = TimeSpan.FromSeconds(1);
+        _saveTimer.IsRepeating = false;
+        _saveTimer.Tick += (_, _) => SaveDevice();
+        WireR9();
         _engine.Start();
 
         _previewTimer = DispatcherQueue.CreateTimer();
@@ -187,12 +203,41 @@ public sealed partial class MainWindow : Window
                 _engine.SetPreviewEnabled(AppWindow.Presenter is not Microsoft.UI.Windowing.OverlappedPresenter p ||
                                           p.State != Microsoft.UI.Windowing.OverlappedPresenterState.Minimized);
         };
+        // Closing keeps Cabled running in the tray (D-20), so apps keep their camera and a phone
+        // plugged in later is picked up. Quit from the tray menu ends it.
+        AppWindow.Closing += (_, e) =>
+        {
+            if (_quitting || !_app.KeepRunningInTray || _tray is null) return;
+            e.Cancel = true;
+            HideToTray();
+        };
         Closed += (_, _) =>
         {
             _previewTimer.Stop();
             _statusTimer.Stop();
+            SaveDevice();
+            _tray?.Dispose();
             _engine.Dispose();  // stops the engine; the camera falls back to its own placeholder
         };
+    }
+
+    public void ShowFromTray()
+    {
+        AppWindow.Show();
+        Activate();
+        _engine.SetPreviewEnabled(true);
+    }
+
+    private void HideToTray()
+    {
+        AppWindow.Hide();
+        _engine.SetPreviewEnabled(false);  // nobody is looking: skip the preview conversion
+    }
+
+    private void Quit()
+    {
+        _quitting = true;
+        Close();
     }
 
     private void UpdatePreview()
@@ -263,8 +308,10 @@ public sealed partial class MainWindow : Window
 
         _engineFaces = s.GetProperty("framing").GetProperty("faces").GetInt32();
         UpdateCameraControls(s.GetProperty("camera"), live || state == "idle");
-        SidePanel.Visibility = live || state == "idle" ? Visibility.Visible : Visibility.Collapsed;
         UpdateSidePanel(s);
+        string deviceId = device.GetProperty("id").GetString() ?? "";
+        if (deviceId.Length > 0 && deviceId != _deviceId) LoadDevice(deviceId);
+        if (_tray is not null) _tray.Tip = $"Cabled: {Headline.Text}";
 
         if (state != _state)
         {
@@ -454,6 +501,7 @@ public sealed partial class MainWindow : Window
                 button.Click += (_, _) =>
                 {
                     _engine.SetCamera(id);
+                    RememberCamera(id);
                     foreach (var child in LensPanel.Children)
                         if (child is Microsoft.UI.Xaml.Controls.Primitives.ToggleButton t) t.IsChecked = (string)t.Tag == id;
                 };

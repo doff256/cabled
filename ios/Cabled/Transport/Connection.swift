@@ -131,7 +131,8 @@ final class Connection {
             if let zoom = request["zoom"] as? Double {
                 p?.setZoom(zoom, rampRate: request["ramp"] as? Double ?? 0)
             }
-            if request["focus"] != nil || request["exposure"] != nil || request["whiteBalance"] != nil {
+            if request["focus"] != nil || request["exposure"] != nil || request["whiteBalance"] != nil
+                || request["rotation"] != nil {
                 p?.applyControls(request)
             }
         case .pong, .log, .status, .configured, .video, .caps, .controlState:

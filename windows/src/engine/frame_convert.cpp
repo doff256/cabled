@@ -39,6 +39,12 @@ FrameConverter::~FrameConverter() {
 }
 
 bool FrameConverter::convert(const AVFrame* src, const vcam::FrameView& dst, const CropRect* crop) {
+    if (!convertRaw(src, dst, crop)) return false;
+    adjuster_.apply(dst, adjust_);
+    return true;
+}
+
+bool FrameConverter::convertRaw(const AVFrame* src, const vcam::FrameView& dst, const CropRect* crop) {
     if (!src || !dst.valid()) return false;
 
     // Crop window, on even pixels so the 4:2:0 chroma planes stay aligned.
@@ -112,7 +118,7 @@ bool FrameConverter::convertBgra(const uint8_t* bgra, uint32_t width, uint32_t h
     f->height = int(height);
     f->data[0] = const_cast<uint8_t*>(bgra);  // read-only use; no buffer refs, so free won't touch it
     f->linesize[0] = int(stride);
-    const bool ok = convert(f, dst);
+    const bool ok = convertRaw(f, dst, nullptr);  // status cards are never adjusted
     av_frame_free(&f);
     return ok;
 }

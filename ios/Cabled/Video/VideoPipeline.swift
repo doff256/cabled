@@ -48,6 +48,8 @@ final class VideoPipeline: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     private var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
     private var rotationObservation: NSKeyValueObservation?
     private var rotationAngle: CGFloat = 0  // camera queue
+    private var autoRotationAngle: CGFloat = 0  // what iOS says keeps the picture level (camera queue)
+    private var rotationOverride: CGFloat?      // R9: fixed by the user (camera queue)
     private var encoderSize: (width: Int, height: Int) = (0, 0)
     private var encoderHevc = false
     private var encoderFps: Double = 30
@@ -216,7 +218,23 @@ final class VideoPipeline: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         rotationObservation = coordinator.observe(\.videoRotationAngleForHorizonLevelCapture,
                                                   options: [.initial, .new]) { [weak self] c, _ in
             let angle = c.videoRotationAngleForHorizonLevelCapture
-            self?.queue.async { self?.applyRotation(angle) }
+            self?.queue.async {
+                guard let self else { return }
+                self.autoRotationAngle = angle
+                if self.rotationOverride == nil { self.applyRotation(angle) }
+            }
+        }
+    }
+
+    /// R9: CONTROL_SET "rotation": 0 / 90 / 180 / 270 fixes the picture's rotation (a phone lying
+    /// flat or on an odd mount confuses auto-rotation); "auto" hands it back. Camera queue.
+    private func setRotationOverride(_ value: Any) {
+        if let degrees = (value as? NSNumber)?.intValue, [0, 90, 180, 270].contains(degrees) {
+            rotationOverride = CGFloat(degrees)
+            applyRotation(CGFloat(degrees))
+        } else {
+            rotationOverride = nil
+            applyRotation(autoRotationAngle)
         }
     }
 
@@ -356,6 +374,7 @@ final class VideoPipeline: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     /// CONTROL_SET body: {focus?, exposure?, whiteBalance?}. Points are in the sent frame (0..1).
     func applyControls(_ c: [String: Any]) {
         queue.async {
+            if let rotation = c["rotation"] { self.setRotationOverride(rotation) }
             guard let device = self.device, (try? device.lockForConfiguration()) != nil else { return }
             defer { device.unlockForConfiguration() }
             let angle = self.rotationAngle
