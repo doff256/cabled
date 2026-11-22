@@ -1,4 +1,4 @@
-# Video pipeline, quality and negotiation
+﻿# Video pipeline, quality and negotiation
 
 ## Quality, honestly
 - The biggest quality wins are already in the hardware: the iPhone's sensor, lens and ISP. Cabled's job is to **not ruin that**: one encode at a very high bitrate, no needless scaling, correct colour tags.
@@ -46,7 +46,7 @@ Readback cost: 4K60 NV12 is about 750 MB/s across PCIe, fine on any discrete GPU
 See virtual-camera.md. Frames carry the **capture timestamp** converted to PC time. If the source falls behind its nominal frame interval, the render thread **repeats the last frame** so consuming apps never stall.
 
 ## Colour
-- Captured as **BT.709, limited (video) range**, and kept that way end to end. No YUV→RGB→YUV round trip unless an adjustment pass is on.
+- Captured as **BT.709, limited (video) range**, and kept that way end to end. The phone turns off iOS's automatic wide colour and sets the camera's colour space to BT.709 (`sRGB` in AVFoundation) itself; otherwise iOS picks Display P3 and the encoder's BT.709 tags would be wrong (R12). No YUV→RGB→YUV round trip unless an adjustment pass is on.
 - MF media types are tagged with `MF_MT_YUV_MATRIX = BT.709`, `MF_MT_VIDEO_NOMINAL_RANGE = 16_235`, `MF_MT_VIDEO_PRIMARIES = BT.709`, `MF_MT_TRANSFER_FUNCTION = 709`.
 - **Known industry pitfall:** some apps ignore the tags and assume BT.601 for every webcam, which gives a slight green or magenta shift. A colour-bar test pattern from the fake device shows how each app behaves (see reliability-and-testing.md). If a major app gets it wrong, a per-device "compatibility colour" option can output BT.601. Decide only with evidence.
 

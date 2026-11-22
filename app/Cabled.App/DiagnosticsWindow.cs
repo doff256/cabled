@@ -112,6 +112,8 @@ internal sealed class DiagnosticsWindow : Window
             sb.AppendLine($"Video in     {v.GetProperty("width").GetUInt32()}×{v.GetProperty("height").GetUInt32()} · {v.GetProperty("fps").GetDouble():0.0} fps · {v.GetProperty("mbps").GetDouble():0.0} Mbit/s");
             sb.AppendLine($"Decode       {(v.GetProperty("hardwareDecode").GetBoolean() ? "GPU (D3D11VA)" : "CPU (software fallback)")} · {v.GetProperty("decodeMs").GetDouble():0.0} ms per frame");
             sb.AppendLine($"Latency      capture → decoded {v.GetProperty("latencyMs").GetDouble():0.0} ms");
+            string colour = s.TryGetProperty("controls", out var ctl) ? Str(ctl, "colorSpace") : "";
+            sb.AppendLine($"Colour       camera {(colour.Length > 0 ? colour : "?")} (should be rec709) → BT.709 limited range to apps");
             sb.AppendLine($"Counters     {c.GetProperty("framesDecoded").GetUInt64()} frames · {c.GetProperty("keyframeRequests").GetUInt64()} keyframe requests (≈ drops) · {c.GetProperty("reconnects").GetUInt64()} reconnects");
             var vcam = s.GetProperty("vcam");
             sb.AppendLine($"Camera out   {(vcam.GetProperty("inUse").GetBoolean() ? "in use" : "not in use")} · {Str(vcam, "state")}");

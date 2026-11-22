@@ -93,6 +93,10 @@ final class VideoPipeline: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         output.alwaysDiscardsLateVideoFrames = true
         output.setSampleBufferDelegate(self, queue: queue)
 
+        // SDR BT.709 end to end (Q11, video-pipeline.md "Colour"): iOS would otherwise switch the
+        // camera to Display P3 wherever the format allows, and the encoder only *labels* frames
+        // BT.709, it doesn't convert, so P3 colours would reach the PC mislabelled (dull reds/skin).
+        session.automaticallyConfiguresCaptureDeviceForWideColor = false
         session.beginConfiguration()
         guard session.canAddInput(input), session.canAddOutput(output) else {
             session.commitConfiguration()
@@ -112,6 +116,7 @@ final class VideoPipeline: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         if let format = Self.pickFormat(device, width: settings.width, height: settings.height, fps: settings.fps) {
             try device.lockForConfiguration()
             device.activeFormat = format
+            Self.useRec709(device)
             let frameDuration = CMTime(value: 1, timescale: CMTimeScale(settings.fps.rounded()))
             device.activeVideoMinFrameDuration = frameDuration
             device.activeVideoMaxFrameDuration = frameDuration
@@ -168,6 +173,7 @@ final class VideoPipeline: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         do {
             try device.lockForConfiguration()
             if device.activeFormat != format { device.activeFormat = format }
+            Self.useRec709(device)
             let frameDuration = CMTime(value: 1, timescale: CMTimeScale(settings.fps.rounded()))
             device.activeVideoMinFrameDuration = frameDuration
             device.activeVideoMaxFrameDuration = frameDuration
@@ -347,6 +353,7 @@ final class VideoPipeline: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
             "zoom": r(Double(d.videoZoomFactor)),
             "lens": CameraCatalog.lensName(d),
             "thermal": DeviceInfo.thermalStateName(ProcessInfo.processInfo.thermalState),
+            "colorSpace": colorSpaceName(d.activeColorSpace),  // R12: should always read rec709
             "focus": [
                 "mode": d.focusMode == .locked ? "manual" : "auto",
                 "position": r(Double(d.lensPosition)),
@@ -539,6 +546,23 @@ final class VideoPipeline: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     }
 
     // MARK: Helpers
+
+    /// Device locked by the caller. sRGB is AVFoundation's name for the BT.709-primaries video space.
+    static func useRec709(_ device: AVCaptureDevice) {
+        if device.activeFormat.supportedColorSpaces.contains(.sRGB), device.activeColorSpace != .sRGB {
+            device.activeColorSpace = .sRGB
+        }
+    }
+
+    static func colorSpaceName(_ space: AVCaptureColorSpace) -> String {
+        switch space {
+        case .sRGB: return "rec709"
+        case .P3_D65: return "p3"
+        case .HLG_BT2020: return "hlg"
+        case .appleLog: return "appleLog"
+        default: return "other"
+        }
+    }
 
     private static func pickFormat(_ device: AVCaptureDevice, width: Int32, height: Int32,
                                    fps: Double) -> AVCaptureDevice.Format? {
