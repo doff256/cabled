@@ -17,6 +17,19 @@ public partial class App : Application
     public App()
     {
         InitializeComponent();
+        // A XAML or startup error otherwise ends the process with no trace; keep the reason.
+        UnhandledException += (_, e) => WriteCrash(e.Exception);
+    }
+
+    internal static void WriteCrash(Exception ex)
+    {
+        try
+        {
+            string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Cabled");
+            Directory.CreateDirectory(dir);
+            File.AppendAllText(Path.Combine(dir, "crash.log"), $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} {ex}\r\n\r\n");
+        }
+        catch { /* nothing more we can do */ }
     }
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
@@ -40,7 +53,8 @@ public partial class App : Application
         // `--tray`: started at login (D-20); stay in the notification area until opened.
         bool startInTray = argv.Contains("--tray");
 
-        _window = new MainWindow(tcpTarget, debugFaces);
+        try { _window = new MainWindow(tcpTarget, debugFaces); }
+        catch (Exception ex) { WriteCrash(ex); throw; }
         if (startInTray) _window.StartInTray();
         else _window.Activate();
 

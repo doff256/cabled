@@ -17,13 +17,13 @@ internal sealed class DiagnosticsWindow : Window
 {
     private readonly Func<string?> _statusJson;
     private readonly LogBook _log;
-    private readonly TextBlock _stats = new() { FontFamily = new FontFamily("Cascadia Mono, Consolas"), FontSize = 12, IsTextSelectionEnabled = true };
+    private readonly TextBlock _stats = new() { FontFamily = (FontFamily)Application.Current.Resources["FontMono"], FontSize = 12, IsTextSelectionEnabled = true };
     private readonly TextBox _logBox = new()
     {
         IsReadOnly = true,
         AcceptsReturn = true,
         TextWrapping = TextWrapping.NoWrap,
-        FontFamily = new FontFamily("Cascadia Mono, Consolas"),
+        FontFamily = (FontFamily)Application.Current.Resources["FontMono"],
         FontSize = 12,
     };
     private readonly TextBlock _copied = new() { VerticalAlignment = VerticalAlignment.Center, Opacity = 0.7 };
@@ -57,7 +57,7 @@ internal sealed class DiagnosticsWindow : Window
         };
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { copy, logs, _copied } };
 
-        var grid = new Grid { Padding = new Thickness(16), RowSpacing = 12 };
+        var grid = new Grid { Padding = new Thickness(24), RowSpacing = 16 };
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });

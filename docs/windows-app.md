@@ -15,7 +15,19 @@ The engine has **no UI dependency** and can run headless. That's what the test h
 
 ## UI
 
-### Main window
+### Look: Mangrove Glass (R15)
+The app uses the owner's design system, **Mangrove Glass** ([DESIGN.md](https://raw.githubusercontent.com/doff256/mangrove-glass/main/DESIGN.md)). Read it before any UI change.
+- **Tokens:** `app/Cabled.App/Themes/Mangrove.xaml` is generated. Change token values or WinUI aliases in `make-theme.ps1` and styles in `Mangrove.static.xaml`, then run `make-theme.ps1`. Colours are `<token>Brush` / `<token>Color` (for example `InkMutedBrush`), dark is the designed default, and light and high contrast follow the system. Code-set colours use `MainWindow.TokenBrush("Tide")`, never raw values.
+- **Fonts:** Bricolage Grotesque (titles), Geist (text), Geist Mono (every number). They are OFL and ship in `Assets/Fonts` with their licences.
+- **Layout:**
+  - The title bar is merged into the window and carries the status pill: LIVE (mangrove-glow, breathing), READY (tide), attention (clay), ERROR (rose).
+  - The preview sits in a carved well, with lens and zoom on glass floating over it.
+  - The settings column is a solid panel.
+  - The numbers row shows output, fps, bitrate and latency as mono readouts.
+- **Rules:** one mangrove fill per view (the primary button or the selected lens), no yellow anywhere, the focus ring in mangrove-glow.
+- **Components, not recoloured stock controls.** Buttons, toggles, sliders, pills, cards and glass are WinUI ports of the design system's own source (`bundle.css`, `components/*.html`). The table in [runs/R15.md](runs/R15.md) maps each template to its source. When the gallery changes, port the change; don't approximate it with WinUI brushes. Compare against the gallery pages (`https://doff256.github.io/mangrove-glass/components/<Name>.html`) with screenshots.
+
+### Main window (original sketch)
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │ ● Connected · iPhone 16 Pro · USB 3 · 3840×2160→1920×1080 @60 · 34 ms   [⚙] │

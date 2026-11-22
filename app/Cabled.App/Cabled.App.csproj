@@ -35,6 +35,13 @@
 
   <ItemGroup>
     <Content Include="Assets\Cabled.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <!-- Mangrove Glass fonts (OFL, licences ship beside them). -->
+    <Content Include="Assets\Fonts\*.ttf;Assets\Fonts\OFL-*.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The template the theme generator reads; not a page of its own. -->
+    <Page Remove="Themes\Mangrove.static.xaml" />
+    <None Include="Themes\Mangrove.static.xaml;Themes\make-theme.ps1" />
   </ItemGroup>
 
   <!-- The native engine and its FFmpeg DLLs ship next to Cabled.exe. -->
