@@ -2,7 +2,7 @@
 
 **Cabled** (working name) turns an iPhone into a wired webcam for Windows. You plug in a cable, open the app, and the camera works.
 
-Status: **design phase, no code yet.** All owner questions are answered (2026-11-21). The remaining *Technical* decisions are engineering calls a run may revisit with evidence. Next step is spike run R1. Licence: MIT.
+Status: **1.0.0 released (2026-11-22).** Run history and what's next are in [roadmap.md](roadmap.md); each run has a page in [runs/](runs/). The app's look follows the owner's design system, Mangrove Glass (see [windows-app.md](windows-app.md)). Licence: MIT.
 
 ## Reading order
 
@@ -33,7 +33,7 @@ Status: **design phase, no code yet.** All owner questions are answered (2026-11
 - **Effort:** 13 runs to 1.0 (realistic range 11–17). Two spike runs come first, because two parts could still sink the plan. See [roadmap.md](roadmap.md).
 - **Test phones:** iPhone Air (one rear lens, USB 2 path) and iPhone 17 Pro (three lenses, USB 3).
 
-## Facts about the dev machine (checked 2026-11-21)
+## Facts about the dev machine (checked 2026-11-21, before R1; the toolchain is now installed, see CLAUDE.md)
 
 - Windows 11 IoT Enterprise LTSC, build 26100. That is new enough for `MFCreateVirtualCamera` (needs build 22000+).
 - GPU: AMD Radeon RX 9070 XT. Its hardware decoder handles H.264, HEVC and AV1.

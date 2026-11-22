@@ -1,4 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Main window, built from mangrove-glass/components/Window.html (the Cabled mock):
+  merged 46px title bar with the lens-and-cable glyph, "Cabled" and a status pill; the preview
+  carved in on the left with the lens picker floating over it on glass; the settings column on
+  the right with one sigil divider and solid cards; under the preview a Readout:
+  latency as the hero number, the rest as rows (components/Readout.html).
+-->
 <Window
     x:Class="Cabled.App.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -9,373 +16,462 @@
         <MicaBackdrop />
     </Window.SystemBackdrop>
 
-    <Grid Padding="16" RowSpacing="12" ColumnSpacing="16">
+    <Grid x:Name="Root">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
+            <RowDefinition Height="46" />
             <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
-        <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="*" />
-            <ColumnDefinition Width="360" />
-        </Grid.ColumnDefinitions>
 
-        <!-- Status: what's happening and what to do next (windows-app.md) -->
-        <Grid Grid.Row="0" Grid.ColumnSpan="2" ColumnSpacing="12">
+        <!-- ===== Title bar (Window.html .titlebar) ===== -->
+        <Grid x:Name="AppTitleBar" Padding="16,0,146,0" ColumnSpacing="10">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
-            <Ellipse x:Name="StatusDot" Width="12" Height="12" VerticalAlignment="Center" Fill="Gray" />
-            <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                <TextBlock x:Name="Headline" Style="{StaticResource SubtitleTextBlockStyle}" Text="Starting" />
-                <TextBlock x:Name="Detail" Style="{StaticResource BodyTextBlockStyle}" TextWrapping="Wrap"
-                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-            </StackPanel>
-            <TextBlock x:Name="DeviceText" Grid.Column="2" VerticalAlignment="Center"
-                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            <!-- app glyph: a lens with a cable (circle r5, circle r1.8, stem), 1.6 stroke -->
+            <Viewbox Width="18" Height="18" VerticalAlignment="Center">
+                <Path Width="24" Height="24" Stroke="{ThemeResource InkBrush}" StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                      Data="M7,9 A5,5 0 1 1 17,9 A5,5 0 1 1 7,9 M10.2,9 A1.8,1.8 0 1 1 13.8,9 A1.8,1.8 0 1 1 10.2,9 M12,14 L12,21" />
+            </Viewbox>
+            <TextBlock Grid.Column="1" Text="Cabled" FontFamily="{StaticResource FontDisplay}" FontSize="16" LineHeight="20"
+                       FontWeight="SemiBold" CharacterSpacing="-15" VerticalAlignment="Center" Foreground="{ThemeResource InkBrush}" />
+            <!-- mg-pill: dot and word in the status colour -->
+            <Border x:Name="StatusPill" Grid.Column="2" Style="{StaticResource PillStyle}">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <Ellipse x:Name="StatusDot" Width="6" Height="6" VerticalAlignment="Center" Fill="{ThemeResource InkMutedBrush}" />
+                    <TextBlock x:Name="StatusWord" Style="{StaticResource PillTextStyle}" Text="STARTING" />
+                </StackPanel>
+            </Border>
+            <TextBlock x:Name="DeviceText" Grid.Column="3" HorizontalAlignment="Right" VerticalAlignment="Center"
+                       Style="{StaticResource HelpTextBlockStyle}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
         </Grid>
 
-        <!-- Preview: exactly what the virtual camera sends. Click to focus there. -->
-        <Border Grid.Row="1" CornerRadius="8" Background="#FF101114">
-            <Grid x:Name="PreviewHost" Background="Transparent">
-                <Image x:Name="Preview" Stretch="Uniform" />
-                <TextBlock x:Name="PreviewHint" HorizontalAlignment="Center" VerticalAlignment="Center"
-                           Style="{StaticResource BodyTextBlockStyle}" Foreground="#99FFFFFF"
-                           Text="No video yet" IsHitTestVisible="False" />
-                <!-- Where the last click focused (fades out) -->
-                <Canvas IsHitTestVisible="False">
-                    <Rectangle x:Name="FocusMark" Width="56" Height="56" Stroke="#FFFFD60A" StrokeThickness="1.5"
-                               Opacity="0" />
-                </Canvas>
-            </Grid>
-        </Border>
-
-        <!-- Side panel (R8, pages in R9): the settings sit next to the preview so every change is
-             seen as it's made. -->
-        <Grid x:Name="SidePanel" Grid.Row="1" Grid.RowSpan="2" Grid.Column="1" RowSpacing="8">
+        <!-- ===== Body (Window.html .body: 1fr + side column, gap 16, padding 4 16 16) ===== -->
+        <Grid x:Name="Body" Grid.Row="1" Padding="16,4,16,16" RowSpacing="16" ColumnSpacing="16">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
-            <SelectorBar x:Name="PageBar">
-                <SelectorBarItem Text="Framing" Tag="FramingPage" IsSelected="True" />
-                <SelectorBarItem Text="Camera" Tag="CameraPage" />
-                <SelectorBarItem Text="Image" Tag="ImagePage" />
-                <SelectorBarItem Text="Presets" Tag="PresetsPage" />
-                <SelectorBarItem Text="App" Tag="AppPage" />
-            </SelectorBar>
-        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-            <Grid Padding="0,0,12,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="340" />
+            </Grid.ColumnDefinitions>
+            <Grid.ChildrenTransitions>
+                <TransitionCollection>
+                    <EntranceThemeTransition FromVerticalOffset="8" IsStaggeringEnabled="True" />
+                </TransitionCollection>
+            </Grid.ChildrenTransitions>
 
-                <!-- Framing -->
-                <StackPanel x:Name="FramingPage" Spacing="8">
-                    <Grid>
-                        <TextBlock Text="Framing" Style="{StaticResource BodyStrongTextBlockStyle}" VerticalAlignment="Center" />
-                        <ToggleSwitch x:Name="FramingSwitch" HorizontalAlignment="Right" OnContent="" OffContent=""
-                                      IsOn="True" MinWidth="0" />
+            <!-- What's happening and what to do next -->
+            <StackPanel Spacing="2" Padding="2,0,0,0">
+                <TextBlock x:Name="Headline" Style="{StaticResource SubtitleTextBlockStyle}" Text="Starting" />
+                <TextBlock x:Name="Detail" Style="{StaticResource BodyTextBlockStyle}" MaxWidth="680" HorizontalAlignment="Left"
+                           Foreground="{ThemeResource InkMutedBrush}" />
+            </StackPanel>
+
+            <!-- Preview (Window.html .preview: radius-lg, surface-000) -->
+            <Border Grid.Row="1" Style="{StaticResource WellStyle}">
+                <Grid>
+                    <Grid x:Name="PreviewHost" Background="Transparent">
+                        <Image x:Name="Preview" Stretch="Uniform" />
+                        <!-- Empty state: an object plus one sentence -->
+                        <StackPanel x:Name="PreviewHint" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12" IsHitTestVisible="False">
+                            <Viewbox Width="44" Height="44" HorizontalAlignment="Center">
+                                <Path Width="24" Height="24" Stroke="{ThemeResource InkFaintBrush}" StrokeThickness="1.2" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                      Data="M7,9 A5,5 0 1 1 17,9 A5,5 0 1 1 7,9 M10.2,9 A1.8,1.8 0 1 1 13.8,9 A1.8,1.8 0 1 1 10.2,9 M12,14 L12,17 M12,19.5 L12,21" />
+                            </Viewbox>
+                            <TextBlock Style="{StaticResource BodyTextBlockStyle}" Foreground="{ThemeResource InkMutedBrush}"
+                                       Text="No video yet" HorizontalAlignment="Center" />
+                        </StackPanel>
+                        <!-- Where the last click focused (fades out) -->
+                        <Canvas IsHitTestVisible="False">
+                            <Rectangle x:Name="FocusMark" Width="56" Height="56" RadiusX="8" RadiusY="8"
+                                       Stroke="{ThemeResource MangroveGlowBrush}" StrokeThickness="1.5" Opacity="0" />
+                        </Canvas>
                     </Grid>
-                    <!-- Box in a box: the whole camera view, with what's being sent outlined -->
-                    <Border CornerRadius="6" Background="#FF101114">
-                        <Grid x:Name="OverviewHost" Background="Transparent" Height="160">
-                            <Image x:Name="OverviewImage" Stretch="Uniform" />
-                            <Canvas x:Name="OverviewCanvas">
-                                <Rectangle x:Name="CropBox" Stroke="#FF5A78C8" StrokeThickness="2" RadiusX="3" RadiusY="3"
-                                           Fill="#225A78C8" />
-                            </Canvas>
+                    <!-- inner shade: the preview is carved in -->
+                    <Border CornerRadius="18" Background="{ThemeResource WellShadeBrush}" Height="28" VerticalAlignment="Top"
+                            IsHitTestVisible="False" Opacity="0.7" />
+
+                    <!-- Lens flyout (Window.html .flyout): mg-glass, left 14 bottom 14, padding 10 12, gap 8 -->
+                    <Border x:Name="CameraControls" Style="{StaticResource GlassPanelStyle}" Visibility="Collapsed"
+                            HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="14">
+                        <Grid>
+                            <Border CornerRadius="17" Background="{ThemeResource GlassSheenBrush}" Opacity="0.55" IsHitTestVisible="False" />
+                            <Grid Padding="12,10,12,12" ColumnSpacing="18" RowSpacing="8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <TextBlock x:Name="LensText" Style="{StaticResource MutedLabelTextBlockStyle}" Text="Lens" />
+                                <StackPanel x:Name="LensPanel" Grid.Row="1" Orientation="Horizontal" Spacing="6" />
+                                <!-- Zoom: presets as glass buttons, the slider, the value in mono -->
+                                <Grid x:Name="ZoomRow" Grid.Column="1" Grid.RowSpan="2" RowSpacing="8">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <Grid>
+                                        <TextBlock Text="Zoom" Style="{StaticResource MutedLabelTextBlockStyle}" />
+                                        <TextBlock x:Name="ZoomText" HorizontalAlignment="Right" Style="{StaticResource NumTextBlockStyle}" Text="1.0×" />
+                                    </Grid>
+                                    <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="10">
+                                        <StackPanel x:Name="PresetPanel" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" />
+                                        <Slider x:Name="ZoomSlider" Width="140" Minimum="0" Maximum="1000" StepFrequency="1" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                </Grid>
+                            </Grid>
                         </Grid>
                     </Border>
-                    <Grid>
-                        <TextBlock Text="Drag the box to adjust the shot" Style="{StaticResource CaptionTextBlockStyle}"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" />
-                        <HyperlinkButton x:Name="NudgeResetButton" Content="Reset" HorizontalAlignment="Right"
-                                         Padding="4,0" FontSize="12" Visibility="Collapsed" />
-                    </Grid>
-                    <Grid>
-                        <TextBlock Text="Wide ↔ close" Style="{StaticResource CaptionTextBlockStyle}"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                        <TextBlock x:Name="FramingZoomText" HorizontalAlignment="Right"
-                                   Style="{StaticResource CaptionTextBlockStyle}" Text="2.0×" />
-                    </Grid>
-                    <Slider x:Name="TightnessSlider" Minimum="0" Maximum="100" Value="50" IsThumbToolTipEnabled="False" />
-                    <TextBlock x:Name="FramingLimitText" Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap"
-                               Foreground="{ThemeResource SystemFillColorCautionBrush}" Visibility="Collapsed" />
-                    <Grid ColumnSpacing="8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <ComboBox x:Name="SpeedCombo" HorizontalAlignment="Stretch" SelectedIndex="1">
-                            <x:String>Calm</x:String>
-                            <x:String>Normal</x:String>
-                            <x:String>Fast</x:String>
-                        </ComboBox>
-                        <CheckBox x:Name="GroupCheck" Grid.Column="1" Content="Everyone" MinWidth="0" />
-                    </Grid>
-                </StackPanel>
+                </Grid>
+            </Border>
 
-                <!-- Camera: focus, exposure, white balance, quality -->
-                <StackPanel x:Name="CameraPage" Spacing="8" Visibility="Collapsed">
-                    <Grid>
-                        <TextBlock Text="Focus" VerticalAlignment="Center" />
-                        <ToggleSwitch x:Name="FocusAutoSwitch" HorizontalAlignment="Right" OnContent="Auto"
-                                      OffContent="Manual" IsOn="True" MinWidth="0" />
-                    </Grid>
-                    <Slider x:Name="FocusSlider" Minimum="0" Maximum="100" IsEnabled="False" IsThumbToolTipEnabled="False" />
-
-                    <Grid>
-                        <TextBlock Text="Exposure" VerticalAlignment="Center" />
-                        <ToggleSwitch x:Name="ExposureAutoSwitch" HorizontalAlignment="Right" OnContent="Auto"
-                                      OffContent="Manual" IsOn="True" MinWidth="0" />
-                    </Grid>
-                    <StackPanel x:Name="ExposureAutoPanel" Spacing="2">
-                        <TextBlock x:Name="BiasText" Style="{StaticResource CaptionTextBlockStyle}" Text="Brightness 0.0 EV" />
-                        <Slider x:Name="BiasSlider" Minimum="-30" Maximum="30" Value="0" IsThumbToolTipEnabled="False" />
-                    </StackPanel>
-                    <StackPanel x:Name="ExposureManualPanel" Spacing="2" Visibility="Collapsed">
-                        <TextBlock x:Name="IsoText" Style="{StaticResource CaptionTextBlockStyle}" Text="ISO" />
-                        <Slider x:Name="IsoSlider" Minimum="0" Maximum="1000" IsThumbToolTipEnabled="False" />
-                        <TextBlock x:Name="ShutterText" Style="{StaticResource CaptionTextBlockStyle}" Text="Shutter" />
-                        <Slider x:Name="ShutterSlider" Minimum="0" Maximum="1000" IsThumbToolTipEnabled="False" />
-                    </StackPanel>
-                    <TextBlock x:Name="ExposureLive" Style="{StaticResource CaptionTextBlockStyle}"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-
-                    <Grid>
-                        <TextBlock Text="White balance" VerticalAlignment="Center" />
-                        <ToggleSwitch x:Name="WbAutoSwitch" HorizontalAlignment="Right" OnContent="Auto"
-                                      OffContent="Manual" IsOn="True" MinWidth="0" />
-                    </Grid>
-                    <StackPanel x:Name="WbManualPanel" Spacing="2" Visibility="Collapsed">
-                        <TextBlock x:Name="TempText" Style="{StaticResource CaptionTextBlockStyle}" Text="5000 K" />
-                        <Slider x:Name="TempSlider" Minimum="2500" Maximum="9000" Value="5000" StepFrequency="50"
-                                IsThumbToolTipEnabled="False" />
-                        <TextBlock x:Name="TintText" Style="{StaticResource CaptionTextBlockStyle}" Text="Tint 0" />
-                        <Slider x:Name="TintSlider" Minimum="-50" Maximum="50" Value="0" IsThumbToolTipEnabled="False" />
-                    </StackPanel>
-                    <TextBlock Text="Tip: click the preview to focus and expose there."
-                               Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-
-                    <!-- Quality: pin the capture (R-58) -->
-                    <TextBlock Text="Quality" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,12,0,0" />
-                    <Grid ColumnSpacing="8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="*" />
-                        </Grid.ColumnDefinitions>
-                        <ComboBox x:Name="CaptureCombo" Header="Capture" HorizontalAlignment="Stretch" SelectedIndex="0">
-                            <x:String>Auto</x:String>
-                            <x:String>720p</x:String>
-                            <x:String>1080p</x:String>
-                            <x:String>4K</x:String>
-                        </ComboBox>
-                        <ComboBox x:Name="FpsCombo" Grid.Column="1" Header="Frame rate" HorizontalAlignment="Stretch"
-                                  SelectedIndex="0">
-                            <x:String>Auto</x:String>
-                            <x:String>30</x:String>
-                            <x:String>60</x:String>
-                            <x:String>120</x:String>
-                        </ComboBox>
-                    </Grid>
-                    <TextBlock Text="Auto follows the app using the camera. A hot phone steps down by itself."
-                               Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                </StackPanel>
-
-                <!-- Image: adjustments done on the PC, seen by every app (R9) -->
-                <StackPanel x:Name="ImagePage" Spacing="4" Visibility="Collapsed">
-                    <Grid>
-                        <TextBlock Text="Brightness" Style="{StaticResource CaptionTextBlockStyle}" />
-                        <TextBlock x:Name="BrightnessText" HorizontalAlignment="Right" Style="{StaticResource CaptionTextBlockStyle}" Text="0" />
-                    </Grid>
-                    <Slider x:Name="BrightnessSlider" Minimum="-100" Maximum="100" Value="0" IsThumbToolTipEnabled="False" />
-                    <Grid>
-                        <TextBlock Text="Contrast" Style="{StaticResource CaptionTextBlockStyle}" />
-                        <TextBlock x:Name="ContrastText" HorizontalAlignment="Right" Style="{StaticResource CaptionTextBlockStyle}" Text="0" />
-                    </Grid>
-                    <Slider x:Name="ContrastSlider" Minimum="-100" Maximum="100" Value="0" IsThumbToolTipEnabled="False" />
-                    <Grid>
-                        <TextBlock Text="Saturation" Style="{StaticResource CaptionTextBlockStyle}" />
-                        <TextBlock x:Name="SaturationText" HorizontalAlignment="Right" Style="{StaticResource CaptionTextBlockStyle}" Text="0" />
-                    </Grid>
-                    <Slider x:Name="SaturationSlider" Minimum="-100" Maximum="100" Value="0" IsThumbToolTipEnabled="False" />
-                    <Grid>
-                        <TextBlock Text="Sharpness" Style="{StaticResource CaptionTextBlockStyle}" />
-                        <TextBlock x:Name="SharpnessText" HorizontalAlignment="Right" Style="{StaticResource CaptionTextBlockStyle}" Text="0" />
-                    </Grid>
-                    <Slider x:Name="SharpnessSlider" Minimum="0" Maximum="100" Value="0" IsThumbToolTipEnabled="False" />
-                    <Grid Margin="0,8,0,0">
-                        <TextBlock Text="Mirror" VerticalAlignment="Center" />
-                        <ToggleSwitch x:Name="MirrorSwitch" HorizontalAlignment="Right" OnContent="" OffContent="" MinWidth="0" />
-                    </Grid>
-                    <ComboBox x:Name="RotationCombo" Header="Rotation" HorizontalAlignment="Stretch" SelectedIndex="0">
-                        <x:String>Auto (follows the phone)</x:String>
-                        <x:String>Landscape</x:String>
-                        <x:String>Portrait</x:String>
-                        <x:String>Landscape, upside down</x:String>
-                        <x:String>Portrait, upside down</x:String>
-                    </ComboBox>
-                    <Button x:Name="NeutralButton" Content="Reset to neutral" Margin="0,12,0,0" />
-                    <TextBlock Text="Mirror flips what every app receives. Most call apps already mirror your own view, so leave it off unless text looks backwards to others."
-                               Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap" Margin="0,8,0,0"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                </StackPanel>
-
-                <!-- Presets: framing + camera + image together, per iPhone (R9) -->
-                <StackPanel x:Name="PresetsPage" Spacing="8" Visibility="Collapsed">
-                    <TextBlock Text="A preset keeps framing, camera and image settings together. Presets belong to this iPhone."
-                               Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                    <Grid ColumnSpacing="8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <TextBox x:Name="PresetNameBox" PlaceholderText="Name, e.g. Desk, Evening" MaxLength="40" />
-                        <Button x:Name="SavePresetButton" Grid.Column="1" Content="Save" Style="{StaticResource AccentButtonStyle}" />
-                    </Grid>
-                    <ListView x:Name="PresetList" SelectionMode="Single" MinHeight="60" />
-                    <TextBlock x:Name="PresetEmptyText" Text="No presets yet." Style="{StaticResource CaptionTextBlockStyle}"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <Button x:Name="ApplyPresetButton" Content="Apply" IsEnabled="False" />
-                        <Button x:Name="RenamePresetButton" Content="Rename" IsEnabled="False" />
-                        <Button x:Name="DeletePresetButton" Content="Delete" IsEnabled="False" />
-                    </StackPanel>
-                    <TextBlock Text="Rename uses the name typed above. Double-click a preset to apply it."
-                               Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                </StackPanel>
-
-                <!-- App: login, tray, about -->
-                <StackPanel x:Name="AppPage" Spacing="8" Visibility="Collapsed">
-                    <Grid>
-                        <TextBlock Text="Start at login, in the tray" VerticalAlignment="Center" />
-                        <ToggleSwitch x:Name="AutostartSwitch" HorizontalAlignment="Right" OnContent="" OffContent="" MinWidth="0" />
-                    </Grid>
-                    <Grid>
-                        <TextBlock Text="Keep running in the tray when closed" VerticalAlignment="Center" TextWrapping="Wrap"
-                                   Margin="0,0,64,0" />
-                        <ToggleSwitch x:Name="TraySwitch" HorizontalAlignment="Right" OnContent="" OffContent="" MinWidth="0"
-                                      IsOn="True" />
-                    </Grid>
-                    <TextBlock Text="With both on, plugging in your iPhone is enough: apps find Cabled Camera without opening anything."
-                               Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                    <TextBlock Text="About" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,12,0,0" />
-                    <TextBlock x:Name="AboutText" Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap" />
-                    <TextBlock Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                               Text="Cabled is MIT-licensed. Video decoding uses FFmpeg (LGPL 2.1), shipped as separate DLLs you can replace. Cabled never checks for updates or sends anything over the network by itself." />
-                    <HyperlinkButton x:Name="ReleasesLink" Content="Check for updates (opens the releases page)" Padding="0" />
-                    <HyperlinkButton x:Name="SettingsFolderLink" Content="Open the settings folder" Padding="0" />
-                    <Button x:Name="DiagnosticsButton" Content="Diagnostics" Margin="0,12,0,0" />
-                    <HyperlinkButton x:Name="SetupAgainLink" Content="Show the setup guide again" Padding="0" />
-                </StackPanel>
-            </Grid>
-        </ScrollViewer>
-        </Grid>
-
-        <!-- Lens + zoom (R6) -->
-        <Grid x:Name="CameraControls" Grid.Row="2" ColumnSpacing="16" Visibility="Collapsed">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
-            <StackPanel x:Name="LensPanel" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" />
-            <Grid x:Name="ZoomRow" Grid.Column="1" ColumnSpacing="8" VerticalAlignment="Center">
+            <!-- Readout (components/Readout.html): one hero number, supporting rows beside it -->
+            <Grid x:Name="Readouts" Grid.Row="2" ColumnSpacing="40" Visibility="Collapsed">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
-                <StackPanel x:Name="PresetPanel" Orientation="Horizontal" Spacing="4" />
-                <Slider x:Name="ZoomSlider" Grid.Column="1" Minimum="0" Maximum="1000" StepFrequency="1"
-                        IsThumbToolTipEnabled="False" VerticalAlignment="Center" MinWidth="160" />
-                <TextBlock x:Name="ZoomText" Grid.Column="2" MinWidth="48" VerticalAlignment="Center"
-                           Style="{StaticResource BodyStrongTextBlockStyle}" Text="1.0×" />
+                <StackPanel VerticalAlignment="Center" Spacing="2" Padding="2,0,0,0"
+                            ToolTipService.ToolTip="From the iPhone's camera to a decoded frame on this PC">
+                    <TextBlock Text="LATENCY" Style="{StaticResource EyebrowTextBlockStyle}" />
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <TextBlock x:Name="LatencyText" Style="{StaticResource ReadoutXlTextBlockStyle}" FontFamily="{StaticResource FontText}" Text="0" />
+                        <TextBlock Style="{StaticResource UnitTextBlockStyle}" Text="ms" VerticalAlignment="Bottom" Margin="0,0,0,8" />
+                    </StackPanel>
+                    <TextBlock Text="camera to PC" Style="{StaticResource HelpTextBlockStyle}" FontFamily="{StaticResource FontMono}" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" VerticalAlignment="Center" MaxWidth="460" HorizontalAlignment="Left">
+                    <Grid Padding="0,7" BorderBrush="{ThemeResource LineBrush}" BorderThickness="0,0,0,1">
+                        <TextBlock Text="Output" Style="{StaticResource MutedLabelTextBlockStyle}" VerticalAlignment="Center" />
+                        <TextBlock x:Name="ResText" Style="{StaticResource NumTextBlockStyle}" FontWeight="SemiBold" HorizontalAlignment="Right" Text="0 × 0" />
+                    </Grid>
+                    <Grid Padding="0,7" BorderBrush="{ThemeResource LineBrush}" BorderThickness="0,0,0,1">
+                        <TextBlock Text="Frame rate" Style="{StaticResource MutedLabelTextBlockStyle}" VerticalAlignment="Center" />
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="4">
+                            <TextBlock x:Name="FpsText" Style="{StaticResource NumTextBlockStyle}" FontWeight="SemiBold" Text="0" />
+                            <TextBlock Style="{StaticResource UnitTextBlockStyle}" Text="fps" VerticalAlignment="Bottom" Margin="0,0,0,1" />
+                        </StackPanel>
+                    </Grid>
+                    <Grid Padding="0,7" BorderBrush="{ThemeResource LineBrush}" BorderThickness="0,0,0,1">
+                        <TextBlock Text="Bitrate" Style="{StaticResource MutedLabelTextBlockStyle}" VerticalAlignment="Center" />
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="4">
+                            <TextBlock x:Name="MbpsText" Style="{StaticResource NumTextBlockStyle}" FontWeight="SemiBold" Text="0" />
+                            <TextBlock Style="{StaticResource UnitTextBlockStyle}" Text="Mbit/s" VerticalAlignment="Bottom" Margin="0,0,0,1" />
+                        </StackPanel>
+                    </Grid>
+                    <Grid Padding="0,7" BorderBrush="{ThemeResource LineBrush}" BorderThickness="0,0,0,1">
+                        <TextBlock Text="Cabled Camera" Style="{StaticResource MutedLabelTextBlockStyle}" VerticalAlignment="Center" />
+                        <TextBlock x:Name="VcamText" Style="{StaticResource NumTextBlockStyle}" FontFamily="{StaticResource FontText}" FontSize="13"
+                                   HorizontalAlignment="Right" TextWrapping="NoWrap" />
+                    </Grid>
+                    <TextBlock x:Name="StatsText" Style="{StaticResource HelpTextBlockStyle}" Margin="0,6,0,0"
+                               TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
+                </StackPanel>
             </Grid>
-            <TextBlock x:Name="LensText" Grid.Column="2" VerticalAlignment="Center"
-                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+
+            <!-- ===== Side column (Window.html .side) ===== -->
+            <Grid x:Name="SidePanel" Grid.Column="1" Grid.RowSpan="3" RowSpacing="10">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <SelectorBar x:Name="PageBar" Margin="-6,0,0,0">
+                    <SelectorBarItem Text="Framing" Tag="FramingPage" IsSelected="True" />
+                    <SelectorBarItem Text="Camera" Tag="CameraPage" />
+                    <SelectorBarItem Text="Image" Tag="ImagePage" />
+                    <SelectorBarItem Text="Presets" Tag="PresetsPage" />
+                    <SelectorBarItem Text="App" Tag="AppPage" />
+                </SelectorBar>
+                <!-- The window's one sigil (components/Sigil.html), a section divider in ink-faint -->
+                <Path Grid.Row="1" Height="18" Stretch="Fill" Stroke="{ThemeResource InkFaintBrush}" StrokeThickness="1"
+                      Data="M0,9 H118 M182,9 H300 M118,9 l8,-6 l6,6 l-6,6 z M182,9 l-8,-6 l-6,6 l6,6 z M132,9 h36 M150,2 v14 M146,5 l4,4 l4,-4"
+                      AutomationProperties.AccessibilityView="Raw" />
+            <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Padding="0,0,10,0" Margin="0,0,-10,0">
+                <Grid>
+
+                    <!-- Framing -->
+                    <StackPanel x:Name="FramingPage" Spacing="12">
+                        <Border Style="{StaticResource CardStyle}">
+                            <StackPanel Spacing="10">
+                                <ToggleSwitch x:Name="FramingSwitch" Header="Auto-framing" IsOn="True" />
+                                <!-- Box in a box: the whole camera view, with what's being sent outlined -->
+                                <Border Style="{StaticResource WellStyle}" CornerRadius="10">
+                                    <Grid x:Name="OverviewHost" Background="Transparent" Height="160">
+                                        <Image x:Name="OverviewImage" Stretch="Uniform" />
+                                        <Canvas x:Name="OverviewCanvas">
+                                            <Rectangle x:Name="CropBox" Stroke="{ThemeResource MangroveGlowBrush}" StrokeThickness="2"
+                                                       RadiusX="4" RadiusY="4" Fill="#1FD9735F" />
+                                        </Canvas>
+                                    </Grid>
+                                </Border>
+                                <Grid>
+                                    <TextBlock Text="Drag the box to adjust the shot" Style="{StaticResource HelpTextBlockStyle}" VerticalAlignment="Center" />
+                                    <HyperlinkButton x:Name="NudgeResetButton" Content="Reset" HorizontalAlignment="Right"
+                                                     Padding="4,0" FontSize="12" Visibility="Collapsed" />
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+                        <Border Style="{StaticResource CardStyle}">
+                            <StackPanel Spacing="6">
+                                <Grid>
+                                    <TextBlock Text="Wide ↔ close" Style="{StaticResource MutedLabelTextBlockStyle}" />
+                                    <TextBlock x:Name="FramingZoomText" HorizontalAlignment="Right" Style="{StaticResource NumTextBlockStyle}" Text="2.0×" />
+                                </Grid>
+                                <Slider x:Name="TightnessSlider" Minimum="0" Maximum="100" Value="50" />
+                                <TextBlock x:Name="FramingLimitText" Style="{StaticResource CaptionTextBlockStyle}"
+                                           Foreground="{ThemeResource ClayBrush}" Visibility="Collapsed" />
+                                <Grid ColumnSpacing="12" Margin="0,6,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <ComboBox x:Name="SpeedCombo" HorizontalAlignment="Stretch" SelectedIndex="1"
+                                              ToolTipService.ToolTip="How quickly the shot follows you">
+                                        <x:String>Calm</x:String>
+                                        <x:String>Normal</x:String>
+                                        <x:String>Fast</x:String>
+                                    </ComboBox>
+                                    <CheckBox x:Name="GroupCheck" Grid.Column="1" Content="Everyone" MinWidth="0" />
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <!-- Camera: focus, exposure, white balance, quality -->
+                    <StackPanel x:Name="CameraPage" Spacing="12" Visibility="Collapsed">
+                        <Border Style="{StaticResource CardStyle}">
+                            <StackPanel Spacing="10">
+                                <ToggleSwitch x:Name="FocusAutoSwitch" Header="Auto focus" IsOn="True" />
+                                <Slider x:Name="FocusSlider" Minimum="0" Maximum="100" IsEnabled="False" />
+                            </StackPanel>
+                        </Border>
+                        <Border Style="{StaticResource CardStyle}">
+                            <StackPanel Spacing="10">
+                                <ToggleSwitch x:Name="ExposureAutoSwitch" Header="Auto exposure" IsOn="True" />
+                                <StackPanel x:Name="ExposureAutoPanel" Spacing="4">
+                                    <TextBlock x:Name="BiasText" Style="{StaticResource NumTextBlockStyle}" Foreground="{ThemeResource InkMutedBrush}" Text="Brightness 0.0 EV" />
+                                    <Slider x:Name="BiasSlider" Minimum="-30" Maximum="30" Value="0" />
+                                </StackPanel>
+                                <StackPanel x:Name="ExposureManualPanel" Spacing="4" Visibility="Collapsed">
+                                    <TextBlock x:Name="IsoText" Style="{StaticResource NumTextBlockStyle}" Foreground="{ThemeResource InkMutedBrush}" Text="ISO" />
+                                    <Slider x:Name="IsoSlider" Minimum="0" Maximum="1000" />
+                                    <TextBlock x:Name="ShutterText" Style="{StaticResource NumTextBlockStyle}" Foreground="{ThemeResource InkMutedBrush}" Text="Shutter" />
+                                    <Slider x:Name="ShutterSlider" Minimum="0" Maximum="1000" />
+                                </StackPanel>
+                                <TextBlock x:Name="ExposureLive" Style="{StaticResource HelpTextBlockStyle}" FontFamily="{StaticResource FontMono}" />
+                            </StackPanel>
+                        </Border>
+                        <Border Style="{StaticResource CardStyle}">
+                            <StackPanel Spacing="10">
+                                <ToggleSwitch x:Name="WbAutoSwitch" Header="Auto white balance" IsOn="True" />
+                                <StackPanel x:Name="WbManualPanel" Spacing="4" Visibility="Collapsed">
+                                    <TextBlock x:Name="TempText" Style="{StaticResource NumTextBlockStyle}" Foreground="{ThemeResource InkMutedBrush}" Text="5000 K" />
+                                    <Slider x:Name="TempSlider" Minimum="2500" Maximum="9000" Value="5000" StepFrequency="50" />
+                                    <TextBlock x:Name="TintText" Style="{StaticResource NumTextBlockStyle}" Foreground="{ThemeResource InkMutedBrush}" Text="Tint 0" />
+                                    <Slider x:Name="TintSlider" Minimum="-50" Maximum="50" Value="0" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+                        <TextBlock Text="Click the preview to focus and expose there." Style="{StaticResource HelpTextBlockStyle}" />
+
+                        <!-- Quality: pin the capture (R-58) -->
+                        <TextBlock Text="QUALITY" Style="{StaticResource EyebrowTextBlockStyle}" Margin="2,8,0,0" />
+                        <Border Style="{StaticResource CardStyle}">
+                            <Grid ColumnSpacing="8" RowSpacing="6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <TextBlock Text="Capture" Style="{StaticResource MutedLabelTextBlockStyle}" />
+                                <TextBlock Grid.Column="1" Text="Frame rate" Style="{StaticResource MutedLabelTextBlockStyle}" />
+                                <ComboBox x:Name="CaptureCombo" Grid.Row="1" HorizontalAlignment="Stretch" SelectedIndex="0">
+                                    <x:String>Auto</x:String>
+                                    <x:String>720p</x:String>
+                                    <x:String>1080p</x:String>
+                                    <x:String>4K</x:String>
+                                </ComboBox>
+                                <ComboBox x:Name="FpsCombo" Grid.Row="1" Grid.Column="1" HorizontalAlignment="Stretch" SelectedIndex="0">
+                                    <x:String>Auto</x:String>
+                                    <x:String>30</x:String>
+                                    <x:String>60</x:String>
+                                    <x:String>120</x:String>
+                                </ComboBox>
+                            </Grid>
+                        </Border>
+                        <TextBlock Text="Auto follows the app using the camera. A hot phone steps down by itself."
+                                   Style="{StaticResource HelpTextBlockStyle}" />
+                    </StackPanel>
+
+                    <!-- Image: adjustments done on the PC, seen by every app (R9) -->
+                    <StackPanel x:Name="ImagePage" Spacing="12" Visibility="Collapsed">
+                        <Border Style="{StaticResource CardStyle}">
+                            <StackPanel Spacing="4">
+                                <Grid>
+                                    <TextBlock Text="Brightness" Style="{StaticResource MutedLabelTextBlockStyle}" />
+                                    <TextBlock x:Name="BrightnessText" HorizontalAlignment="Right" Style="{StaticResource NumTextBlockStyle}" Text="0" />
+                                </Grid>
+                                <Slider x:Name="BrightnessSlider" Minimum="-100" Maximum="100" Value="0" />
+                                <Grid Margin="0,6,0,0">
+                                    <TextBlock Text="Contrast" Style="{StaticResource MutedLabelTextBlockStyle}" />
+                                    <TextBlock x:Name="ContrastText" HorizontalAlignment="Right" Style="{StaticResource NumTextBlockStyle}" Text="0" />
+                                </Grid>
+                                <Slider x:Name="ContrastSlider" Minimum="-100" Maximum="100" Value="0" />
+                                <Grid Margin="0,6,0,0">
+                                    <TextBlock Text="Saturation" Style="{StaticResource MutedLabelTextBlockStyle}" />
+                                    <TextBlock x:Name="SaturationText" HorizontalAlignment="Right" Style="{StaticResource NumTextBlockStyle}" Text="0" />
+                                </Grid>
+                                <Slider x:Name="SaturationSlider" Minimum="-100" Maximum="100" Value="0" />
+                                <Grid Margin="0,6,0,0">
+                                    <TextBlock Text="Sharpness" Style="{StaticResource MutedLabelTextBlockStyle}" />
+                                    <TextBlock x:Name="SharpnessText" HorizontalAlignment="Right" Style="{StaticResource NumTextBlockStyle}" Text="0" />
+                                </Grid>
+                                <Slider x:Name="SharpnessSlider" Minimum="0" Maximum="100" Value="0" />
+                            </StackPanel>
+                        </Border>
+                        <Border Style="{StaticResource CardStyle}">
+                            <StackPanel Spacing="10">
+                                <ToggleSwitch x:Name="MirrorSwitch" Header="Mirror" />
+                                <TextBlock Text="Rotation" Style="{StaticResource MutedLabelTextBlockStyle}" />
+                                <ComboBox x:Name="RotationCombo" HorizontalAlignment="Stretch" SelectedIndex="0">
+                                    <x:String>Auto (follows the phone)</x:String>
+                                    <x:String>Landscape</x:String>
+                                    <x:String>Portrait</x:String>
+                                    <x:String>Landscape, upside down</x:String>
+                                    <x:String>Portrait, upside down</x:String>
+                                </ComboBox>
+                            </StackPanel>
+                        </Border>
+                        <Button x:Name="NeutralButton" Content="Reset to neutral" />
+                        <TextBlock Text="Mirror flips what every app receives. Most call apps already mirror your own view, so leave it off unless text looks backwards to others."
+                                   Style="{StaticResource HelpTextBlockStyle}" />
+                    </StackPanel>
+
+                    <!-- Presets: framing + camera + image together, per iPhone (R9) -->
+                    <StackPanel x:Name="PresetsPage" Spacing="12" Visibility="Collapsed">
+                        <TextBlock Text="A preset keeps framing, camera and image settings together. Presets belong to this iPhone."
+                                   Style="{StaticResource HelpTextBlockStyle}" />
+                        <Border Style="{StaticResource CardStyle}">
+                            <StackPanel Spacing="10">
+                                <Grid ColumnSpacing="8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox x:Name="PresetNameBox" PlaceholderText="Name, e.g. Desk" MaxLength="40" VerticalAlignment="Center" />
+                                    <Button x:Name="SavePresetButton" Grid.Column="1" Content="Save preset" Style="{StaticResource AccentButtonStyle}" />
+                                </Grid>
+                                <ListView x:Name="PresetList" SelectionMode="Single" MinHeight="40" />
+                                <TextBlock x:Name="PresetEmptyText" Text="No presets yet." Style="{StaticResource HelpTextBlockStyle}" />
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Button x:Name="ApplyPresetButton" Content="Apply" IsEnabled="False" />
+                                    <Button x:Name="RenamePresetButton" Content="Rename" IsEnabled="False" />
+                                    <Button x:Name="DeletePresetButton" Content="Delete" IsEnabled="False" Style="{StaticResource DangerButtonStyle}" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+                        <TextBlock Text="Rename uses the name typed above. Double-click a preset to apply it."
+                                   Style="{StaticResource HelpTextBlockStyle}" />
+                    </StackPanel>
+
+                    <!-- App: login, tray, about -->
+                    <StackPanel x:Name="AppPage" Spacing="12" Visibility="Collapsed">
+                        <Border Style="{StaticResource CardStyle}">
+                            <StackPanel Spacing="12">
+                                <ToggleSwitch x:Name="AutostartSwitch" Header="Start at login, in the tray" />
+                                <ToggleSwitch x:Name="TraySwitch" Header="Keep running in the tray when closed" IsOn="True" />
+                            </StackPanel>
+                        </Border>
+                        <TextBlock Text="With both on, plugging in your iPhone is enough: apps find Cabled Camera without opening anything."
+                                   Style="{StaticResource HelpTextBlockStyle}" />
+                        <TextBlock Text="ABOUT" Style="{StaticResource EyebrowTextBlockStyle}" Margin="2,8,0,0" />
+                        <Border Style="{StaticResource CardStyle}">
+                            <StackPanel Spacing="8">
+                                <TextBlock x:Name="AboutText" Style="{StaticResource NumTextBlockStyle}" TextWrapping="Wrap" />
+                                <TextBlock Style="{StaticResource HelpTextBlockStyle}"
+                                           Text="Cabled is MIT-licensed. Video decoding uses FFmpeg (LGPL 2.1), shipped as separate DLLs you can replace. Cabled never checks for updates or sends anything over the network by itself." />
+                                <HyperlinkButton x:Name="ReleasesLink" Content="Check for updates (opens the releases page)" Padding="0" />
+                                <HyperlinkButton x:Name="SettingsFolderLink" Content="Open the settings folder" Padding="0" />
+                                <HyperlinkButton x:Name="SetupAgainLink" Content="Show the setup guide again" Padding="0" />
+                            </StackPanel>
+                        </Border>
+                        <Button x:Name="DiagnosticsButton" Content="Open diagnostics" />
+                    </StackPanel>
+                </Grid>
+            </ScrollViewer>
+            </Grid>
         </Grid>
 
-        <!-- First-run setup (R11, windows-app.md "First-run onboarding"): each step checks itself live. -->
-        <Grid x:Name="Onboarding" Grid.RowSpan="4" Grid.ColumnSpan="2" Margin="-16" Visibility="Collapsed" Canvas.ZIndex="10"
-              Background="{ThemeResource SolidBackgroundFillColorBaseBrush}">
+        <!-- ===== First-run setup (R11): each step checks itself live ===== -->
+        <Grid x:Name="Onboarding" Grid.Row="1" Visibility="Collapsed" Canvas.ZIndex="10" Background="{ThemeResource Surface100Brush}">
             <ScrollViewer>
-                <StackPanel MaxWidth="600" Spacing="18" Padding="32" VerticalAlignment="Center">
+                <StackPanel MaxWidth="620" Spacing="20" Padding="32" VerticalAlignment="Center">
                     <TextBlock Text="Set up Cabled" Style="{StaticResource TitleTextBlockStyle}" />
                     <TextBlock Text="Your iPhone becomes a webcam over its USB cable. Each step below ticks itself off as you go."
-                               TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-
-                    <Grid ColumnSpacing="14">
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="28" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                        <TextBlock x:Name="StepIcon1" FontFamily="Segoe Fluent Icons" FontSize="20" Text="&#xE91F;" />
-                        <StackPanel Grid.Column="1" Spacing="6">
-                            <TextBlock Text="Apple's iPhone service" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                            <TextBlock x:Name="StepDetail1" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                            <StackPanel x:Name="StepActions1" Orientation="Horizontal" Spacing="8" Visibility="Collapsed">
-                                <Button x:Name="AppleDevicesButton" Content="Get Apple Devices (Microsoft Store)" />
-                                <HyperlinkButton x:Name="ITunesLink" Content="No Store? Get iTunes" />
-                            </StackPanel>
+                               Style="{StaticResource BodyTextBlockStyle}" Foreground="{ThemeResource InkMutedBrush}" />
+                    <Border Style="{StaticResource CardStyle}" Padding="20">
+                        <StackPanel Spacing="18">
+                            <Grid ColumnSpacing="14">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="28" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                <TextBlock x:Name="StepIcon1" FontFamily="Segoe Fluent Icons" FontSize="20" Text="&#xE91F;" />
+                                <StackPanel Grid.Column="1" Spacing="6">
+                                    <TextBlock Text="Apple's iPhone service" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                    <TextBlock x:Name="StepDetail1" Style="{StaticResource BodyTextBlockStyle}" Foreground="{ThemeResource InkMutedBrush}" />
+                                    <StackPanel x:Name="StepActions1" Orientation="Horizontal" Spacing="8" Visibility="Collapsed">
+                                        <Button x:Name="AppleDevicesButton" Content="Get Apple Devices (Microsoft Store)" />
+                                        <HyperlinkButton x:Name="ITunesLink" Content="No Store? Get iTunes" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Grid>
+                            <Grid ColumnSpacing="14">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="28" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                <TextBlock x:Name="StepIcon2" FontFamily="Segoe Fluent Icons" FontSize="20" Text="&#xE91F;" />
+                                <StackPanel Grid.Column="1" Spacing="6">
+                                    <TextBlock Text="Plug in your iPhone" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                    <TextBlock x:Name="StepDetail2" Style="{StaticResource BodyTextBlockStyle}" Foreground="{ThemeResource InkMutedBrush}" />
+                                </StackPanel>
+                            </Grid>
+                            <Grid ColumnSpacing="14">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="28" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                <TextBlock x:Name="StepIcon3" FontFamily="Segoe Fluent Icons" FontSize="20" Text="&#xE91F;" />
+                                <StackPanel Grid.Column="1" Spacing="6">
+                                    <TextBlock Text="Open Cabled on your iPhone" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                    <TextBlock x:Name="StepDetail3" Style="{StaticResource BodyTextBlockStyle}" Foreground="{ThemeResource InkMutedBrush}" />
+                                    <HyperlinkButton x:Name="CompanionGuideLink" Content="How to install the iPhone app (SideStore)" Padding="0" />
+                                </StackPanel>
+                            </Grid>
+                            <Grid ColumnSpacing="14">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="28" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                <TextBlock x:Name="StepIcon4" FontFamily="Segoe Fluent Icons" FontSize="20" Text="&#xE91F;" />
+                                <StackPanel Grid.Column="1" Spacing="6">
+                                    <TextBlock Text="Ready" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                    <TextBlock x:Name="StepDetail4" Style="{StaticResource BodyTextBlockStyle}" Foreground="{ThemeResource InkMutedBrush}" />
+                                </StackPanel>
+                            </Grid>
                         </StackPanel>
-                    </Grid>
-
-                    <Grid ColumnSpacing="14">
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="28" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                        <TextBlock x:Name="StepIcon2" FontFamily="Segoe Fluent Icons" FontSize="20" Text="&#xE91F;" />
-                        <StackPanel Grid.Column="1" Spacing="6">
-                            <TextBlock Text="Plug in your iPhone" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                            <TextBlock x:Name="StepDetail2" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                        </StackPanel>
-                    </Grid>
-
-                    <Grid ColumnSpacing="14">
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="28" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                        <TextBlock x:Name="StepIcon3" FontFamily="Segoe Fluent Icons" FontSize="20" Text="&#xE91F;" />
-                        <StackPanel Grid.Column="1" Spacing="6">
-                            <TextBlock Text="Open Cabled on your iPhone" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                            <TextBlock x:Name="StepDetail3" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                            <HyperlinkButton x:Name="CompanionGuideLink" Content="How to install the iPhone app (SideStore)" Padding="0" />
-                        </StackPanel>
-                    </Grid>
-
-                    <Grid ColumnSpacing="14">
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="28" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                        <TextBlock x:Name="StepIcon4" FontFamily="Segoe Fluent Icons" FontSize="20" Text="&#xE91F;" />
-                        <StackPanel Grid.Column="1" Spacing="6">
-                            <TextBlock Text="Ready" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                            <TextBlock x:Name="StepDetail4" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                        </StackPanel>
-                    </Grid>
-
+                    </Border>
                     <CheckBox x:Name="OnboardingAutostartCheck" IsChecked="True"
                               Content="Start Cabled at login, in the tray, so apps have a camera as soon as the iPhone is plugged in" />
-                    <TextBlock TextWrapping="Wrap" Style="{StaticResource CaptionTextBlockStyle}"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    <TextBlock Style="{StaticResource HelpTextBlockStyle}"
                                Text="Tip: to open Cabled on the iPhone by itself, add a Shortcuts automation on the phone: Automation → Charger → Is Connected → Open App → Cabled, and set it to run immediately." />
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                        <Button x:Name="OnboardingFinishButton" Content="Finish" Style="{StaticResource AccentButtonStyle}" />
-                        <Button x:Name="OnboardingSkipButton" Content="Skip for now" />
+                        <Button x:Name="OnboardingFinishButton" Content="Finish setup" Style="{StaticResource AccentButtonStyle}" />
+                        <Button x:Name="OnboardingSkipButton" Content="Skip for now" Style="{StaticResource GhostButtonStyle}" />
                     </StackPanel>
                 </StackPanel>
             </ScrollViewer>
-        </Grid>
-
-        <!-- Stats + virtual camera state -->
-        <Grid Grid.Row="3" Grid.ColumnSpan="2" ColumnSpacing="16">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
-            <TextBlock x:Name="StatsText" Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap"
-                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-            <TextBlock x:Name="VcamText" Grid.Column="1" Style="{StaticResource CaptionTextBlockStyle}"
-                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
         </Grid>
     </Grid>
 </Window>

@@ -24,6 +24,7 @@ public sealed partial class MainWindow : Window
     private string _currentCamera = "";
     private double _zoomMin = 1, _zoomMax = 1;
     private bool _settingSlider;
+    private bool _zoomHeld;  // pointer down on the zoom slider: never move it under the user's finger
     private DateTime _userZoomedAt = DateTime.MinValue;
     private DateTime _lastZoomSent = DateTime.MinValue;
     private int _engineFaces = -1;
@@ -55,8 +56,9 @@ public sealed partial class MainWindow : Window
     public MainWindow(string? tcpTarget, bool debugFaces = false)
     {
         InitializeComponent();
-        AppWindow.Resize(new SizeInt32(1100, 760));
+        AppWindow.Resize(new SizeInt32(1240, 860));
         Title = $"Cabled {NativeEngine.Version}";
+        SetupChrome();
 
         _engine = new NativeEngine(new
         {
@@ -197,7 +199,14 @@ public sealed partial class MainWindow : Window
             _lastZoomSent = DateTime.UtcNow;
             _engine.SetZoom(zoom, smooth: false);
         };
-        ZoomSlider.PointerCaptureLost += (_, _) => _engine.SetZoom(SliderToZoom(ZoomSlider.Value), smooth: false);
+        // The Slider handles pointer presses itself, so listen to handled events too.
+        ZoomSlider.AddHandler(UIElement.PointerPressedEvent, new Microsoft.UI.Xaml.Input.PointerEventHandler((_, _) => { _zoomHeld = true; StopZoomGlide(); }), true);
+        ZoomSlider.PointerCaptureLost += (_, _) =>
+        {
+            _zoomHeld = false;
+            _userZoomedAt = DateTime.UtcNow;
+            _engine.SetZoom(SliderToZoom(ZoomSlider.Value), smooth: false);
+        };
 
         // Save work while minimised: no preview conversion when nobody can see it.
         AppWindow.Changed += (_, e) =>
@@ -283,13 +292,7 @@ public sealed partial class MainWindow : Window
         Detail.Text = s.GetProperty("detail").GetString();
         Detail.Visibility = string.IsNullOrEmpty(Detail.Text) ? Visibility.Collapsed : Visibility.Visible;
 
-        StatusDot.Fill = new SolidColorBrush(state switch
-        {
-            "streaming" or "idle" => Colors.LimeGreen,
-            "paused" or "connecting" or "waiting-for-companion" => Colors.Orange,
-            "no-service" or "incompatible" or "error" => Colors.IndianRed,
-            _ => Colors.Gray,
-        });
+        SetStatusPill(state);
 
         var device = s.GetProperty("device");
         string model = device.GetProperty("model").GetString() ?? "";
@@ -319,19 +322,24 @@ public sealed partial class MainWindow : Window
 
         var v = s.GetProperty("video");
         bool live = state is "streaming" or "paused";
+        Readouts.Visibility = live ? Visibility.Visible : Visibility.Collapsed;
+        if (live)
+        {
+            ResText.Text = $"{v.GetProperty("width").GetUInt32()} × {v.GetProperty("height").GetUInt32()}";
+            MbpsText.Text = Num(v.GetProperty("mbps").GetDouble());
+            LatencyText.Text = Num(v.GetProperty("latencyMs").GetDouble());
+            FpsText.Text = Num(v.GetProperty("fps").GetDouble());
+        }
         StatsText.Text = live
-            ? $"{v.GetProperty("width").GetUInt32()}×{v.GetProperty("height").GetUInt32()} · " +
-              $"{v.GetProperty("fps").GetDouble():0.0} fps · {v.GetProperty("mbps").GetDouble():0.0} Mbit/s · " +
-              $"{(v.GetProperty("hardwareDecode").GetBoolean() ? "GPU" : "CPU")} decode {v.GetProperty("decodeMs").GetDouble():0.0} ms · " +
-              $"capture→decoded {v.GetProperty("latencyMs").GetDouble():0.0} ms · " +
+            ? $"{(v.GetProperty("hardwareDecode").GetBoolean() ? "GPU" : "CPU")} decode {v.GetProperty("decodeMs").GetDouble():0.0} ms · " +
               $"asked phone for {s.GetProperty("link").GetProperty("config").GetString()} · " +
               $"link {s.GetProperty("link").GetProperty("mbps").GetDouble():0} Mbit/s"
-            : state == "idle" ? $"Video off until an app opens Cabled Camera · link {s.GetProperty("link").GetProperty("mbps").GetDouble():0} Mbit/s"
             : "";
+        ToolTipService.SetToolTip(StatsText, StatsText.Text.Length > 0 ? StatsText.Text : null);
         var vcam = s.GetProperty("vcam");
-        VcamText.Text = "Cabled Camera: " + (vcam.GetProperty("inUse").GetBoolean()
-            ? "in use · " + vcam.GetProperty("state").GetString()
-            : "not in use");
+        VcamText.Text = vcam.GetProperty("inUse").GetBoolean()
+            ? "In use · " + vcam.GetProperty("state").GetString()
+            : "Not in use";
 
         _engineFaces = s.GetProperty("framing").GetProperty("faces").GetInt32();
         UpdateCameraControls(s.GetProperty("camera"), live || state == "idle");
@@ -345,8 +353,7 @@ public sealed partial class MainWindow : Window
         {
             _state = state;
             Preview.Opacity = state == "streaming" ? 1.0 : 0.25;
-            PreviewHint.Visibility = state == "streaming" ? Visibility.Collapsed : Visibility.Visible;
-            PreviewHint.Text = _bitmap is null ? "No video yet" : "";
+            PreviewHint.Visibility = state != "streaming" && _bitmap is null ? Visibility.Visible : Visibility.Collapsed;
         }
     }
 
@@ -498,6 +505,73 @@ public sealed partial class MainWindow : Window
     private double SliderToZoom(double v) =>
         Math.Exp(Math.Log(_zoomMin) + (Math.Log(_zoomMax) - Math.Log(_zoomMin)) * v / ZoomSlider.Maximum);
 
+    // Moves the slider to a zoom the app (not the user's finger) chose: a preset, or the phone's own zoom.
+    // Mangrove Glass: values glide, never jump; thumbs land with ease-spring over dur-settle. Under
+    // reduced motion (Windows "Animation effects" off) it snaps.
+    private const double ZoomGlideMs = 520;                        // dur-settle
+    private static readonly double[] EaseSpring = { 0.2, 0.9, 0.25, 1.15 };
+    private double _glideFrom, _glideTo, _glideZoom;
+    private DateTime _glideStart, _glideTextAt;
+    private bool _gliding;
+
+    private void SetZoomSlider(double zoom)
+    {
+        double target = ZoomToSlider(zoom);
+        _glideZoom = zoom;
+        if (Math.Abs(target - _glideTo) < 0.5 && _gliding) return;   // already heading there
+        if (!AnimationsOn || Math.Abs(target - ZoomSlider.Value) < 2)
+        {
+            StopZoomGlide();
+            PutSlider(target);
+            ZoomText.Text = $"{zoom:0.0}×";
+            return;
+        }
+        _glideFrom = ZoomSlider.Value;
+        _glideTo = target;
+        _glideStart = DateTime.UtcNow;
+        if (!_gliding) { _gliding = true; Microsoft.UI.Xaml.Media.CompositionTarget.Rendering += OnZoomGlide; }
+    }
+
+    private void OnZoomGlide(object? sender, object e)
+    {
+        double t = Math.Min(1, (DateTime.UtcNow - _glideStart).TotalMilliseconds / ZoomGlideMs);
+        PutSlider(_glideFrom + (_glideTo - _glideFrom) * CubicBezier(EaseSpring, t));
+        if (t >= 1) { StopZoomGlide(); ZoomText.Text = $"{_glideZoom:0.0}×"; return; }
+        // Numbers don't flicker faster than 10 a second.
+        if ((DateTime.UtcNow - _glideTextAt).TotalMilliseconds >= 100)
+        {
+            _glideTextAt = DateTime.UtcNow;
+            ZoomText.Text = $"{SliderToZoom(ZoomSlider.Value):0.0}×";
+        }
+    }
+
+    private void StopZoomGlide()
+    {
+        if (!_gliding) return;
+        _gliding = false;
+        Microsoft.UI.Xaml.Media.CompositionTarget.Rendering -= OnZoomGlide;
+    }
+
+    private void PutSlider(double v)
+    {
+        _settingSlider = true;
+        ZoomSlider.Value = Math.Clamp(v, ZoomSlider.Minimum, ZoomSlider.Maximum);
+        _settingSlider = false;
+    }
+
+    // CSS cubic-bezier(x1, y1, x2, y2) at progress t: solve x(s) = t for s, return y(s).
+    private static double CubicBezier(double[] p, double t)
+    {
+        static double B(double a, double b, double s) => 3 * a * s * (1 - s) * (1 - s) + 3 * b * s * s * (1 - s) + s * s * s;
+        double lo = 0, hi = 1, s = t;
+        for (int i = 0; i < 30; i++)
+        {
+            s = (lo + hi) / 2;
+            if (B(p[0], p[2], s) < t) lo = s; else hi = s;
+        }
+        return B(p[1], p[3], s);
+    }
+
     private double ZoomToSlider(double zoom) =>
         _zoomMax <= _zoomMin ? 0 :
         (Math.Log(Math.Clamp(zoom, _zoomMin, _zoomMax)) - Math.Log(_zoomMin)) /
@@ -524,6 +598,7 @@ public sealed partial class MainWindow : Window
                     Content = c.GetProperty("label").GetString(),
                     IsChecked = id == current,
                     Tag = id,
+                    Style = (Style)Application.Current.Resources["LensToggleStyle"],
                 };
                 Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(button, c.GetProperty("name").GetString());
                 button.Click += (_, _) =>
@@ -543,10 +618,11 @@ public sealed partial class MainWindow : Window
                 foreach (var p in c.GetProperty("presets").EnumerateArray())
                 {
                     double preset = p.GetDouble();
-                    var b = new Microsoft.UI.Xaml.Controls.Button { Content = $"{preset:0.#}×", Padding = new Thickness(8, 2, 8, 2) };
+                    var b = new Microsoft.UI.Xaml.Controls.Button { Content = $"{preset:0.#}×", Style = (Style)Application.Current.Resources["GlassButtonStyle"] };
                     b.Click += (_, _) =>
                     {
                         _userZoomedAt = DateTime.UtcNow;
+                        SetZoomSlider(preset);  // move now; the phone's ramp catches up
                         _engine.SetZoom(preset, smooth: true);
                     };
                     PresetPanel.Children.Add(b);
@@ -556,13 +632,7 @@ public sealed partial class MainWindow : Window
 
         // Follow the phone's zoom (ramps, reconnects) unless the user is dragging right now.
         double zoom = camera.GetProperty("zoom").GetDouble();
-        if (DateTime.UtcNow - _userZoomedAt > TimeSpan.FromSeconds(1))
-        {
-            _settingSlider = true;
-            ZoomSlider.Value = ZoomToSlider(zoom);
-            _settingSlider = false;
-            ZoomText.Text = $"{zoom:0.0}×";
-        }
+        if (!_zoomHeld && DateTime.UtcNow - _userZoomedAt > TimeSpan.FromSeconds(1)) SetZoomSlider(zoom);
         if (_engineFaces >= 0) ToolTipService.SetToolTip(FramingSwitch, $"Faces in view: {_engineFaces}");
         string lens = camera.GetProperty("lens").GetString() ?? "";
         LensText.Text = lens switch
@@ -570,7 +640,7 @@ public sealed partial class MainWindow : Window
             "ultraWide" => "Ultra wide lens",
             "telephoto" => "Telephoto lens",
             "front" => "Front camera",
-            "" => "",
+            "" => "Lens",
             _ => "Main lens",
         };
     }

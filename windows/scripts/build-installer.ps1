@@ -42,10 +42,17 @@ if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed ($LASTEXITCODE)" }
 $built = Get-ChildItem (Join-Path $repo 'build\app-bin') -Recurse -Filter 'Cabled.pri' |
     Where-Object { $_.FullName -match '\\Release\\' } | Select-Object -First 1
 if (-not $built) { throw 'Cabled.pri not found in build\app-bin' }
-Get-ChildItem $built.DirectoryName -File | Where-Object { $_.Extension -in '.pri', '.xbf' } |
-    Where-Object { -not (Test-Path (Join-Path $publish $_.Name)) } |
-    ForEach-Object { Copy-Item $_.FullName $publish; Write-Host "Added $($_.Name)" }
-foreach ($f in 'Cabled.pri', 'MainWindow.xbf', 'App.xbf') {
+# Subfolders too: the theme compiles to Themes\Mangrove.xbf.
+Get-ChildItem $built.DirectoryName -File -Recurse | Where-Object { $_.Extension -in '.pri', '.xbf' } |
+    ForEach-Object {
+        $rel = $_.FullName.Substring($built.DirectoryName.Length + 1)
+        $dest = Join-Path $publish $rel
+        if (-not (Test-Path $dest)) {
+            New-Item -ItemType Directory -Force (Split-Path $dest) | Out-Null
+            Copy-Item $_.FullName $dest; Write-Host "Added $rel"
+        }
+    }
+foreach ($f in 'Cabled.pri', 'MainWindow.xbf', 'App.xbf', 'Themes\Mangrove.xbf', 'Assets\Fonts\Geist.ttf') {
     if (-not (Test-Path (Join-Path $publish $f))) { throw "$f missing from the publish folder" }
 }
 

@@ -9,7 +9,7 @@ on:
 
 jobs:
   test-and-package:
-    runs-on: macos-15
+    runs-on: macos-26
     defaults:
       run:
         working-directory: ios
@@ -50,6 +50,13 @@ jobs:
             -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             | tail -n 30
+
+      - name: Check app icon
+        run: |
+          APP=build/Build/Products/Release-iphoneos/Cabled.app
+          ls "$APP" | grep -i -E "AppIcon|Assets.car"
+          plutil -p "$APP/Info.plist" | grep -A6 CFBundleIcons
+          plutil -p "$APP/Info.plist" | grep -q CFBundlePrimaryIcon
 
       - name: Package IPA
         run: |
