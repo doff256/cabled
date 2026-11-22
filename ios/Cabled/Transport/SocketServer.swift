@@ -8,6 +8,14 @@ struct SocketError: Error, CustomStringConvertible {
 }
 
 /// What the UI hears from the transport. Always delivered on a background thread.
+/// What the phone is sending while video flows (for the status screen).
+struct StreamInfo: Equatable {
+    var width: Int
+    var height: Int
+    var fps: Int
+    var hevc: Bool
+}
+
 enum CompanionEvent {
     case listening(address: String, port: UInt16)
     case listenerStopped
@@ -17,7 +25,8 @@ enum CompanionEvent {
     case pingCount(Int)
     case probeDown(mbps: Double)
     case probeUp(mbps: Double)
-    case streaming(String?)  // description while video flows, nil when it stops
+    case streaming(StreamInfo?)  // while video flows, nil when it stops
+    case camera(interruption: String?)  // AVCaptureSession interruption reason, nil once it runs again
     case log(String)
 }
 
