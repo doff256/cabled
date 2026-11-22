@@ -21,16 +21,22 @@ struct FramingSettings {
     bool enabled = true;      // R-42: on by default
     bool group = false;       // frame everyone in view instead of one person
     double headroom = 0.18;   // top of the face at this fraction of the crop height
-    double widthFactor = 3.2; // crop width = face width x this (head and shoulders)
-    double maxUpscale = 1.0;  // quality guard: crop never smaller than output / this (1 = no upscaling)
+    // How close the shot is, set by the user and kept as set (owner feedback on R8: the framer
+    // must not zoom in and out by itself). 1 = the whole view, 3 = a third of it. The framer only
+    // pans and tilts to keep you in shot; it widens only when "Everyone" needs more room.
+    double zoom = 2.0;
+    double maxUpscale = 1.5;  // quality guard: crop never smaller than output / this
     double deadZone = 0.05;   // ignore moves smaller than this fraction of the crop width
     double speed = 1.0;       // spring speed multiplier (calm < 1 < fast)
-    double holdSeconds = 1.5; // keep framing this long after the face is lost
 
-    // User-facing knobs (R8). tightness 0 = show more (wide), 1 = show less (tight).
+    static constexpr double kMaxZoom = 3.0;
+    // User-facing knob (R8): 0 = wide (whole view), 1 = close (kMaxZoom).
     void setTightness(double tightness);
     double tightness() const;
 };
+
+// The closest zoom the quality guard allows for this source and output (1 = no room to zoom).
+double reachableZoom(uint32_t srcW, uint32_t srcH, uint32_t outW, uint32_t outH, const FramingSettings& s);
 
 // Largest centered rectangle with the output's aspect ratio (fills the output, crops the rest).
 CropRect fillCrop(uint32_t srcW, uint32_t srcH, uint32_t outW, uint32_t outH);
@@ -54,7 +60,6 @@ private:
     double tx_ = 0, ty_ = 0, tw_ = 0;   // current target
     double lastTime_ = 0;
     int primaryId_ = -1;
-    double lastSeen_ = -1e9;
 };
 
 }  // namespace cabled::engine

@@ -32,7 +32,7 @@ public sealed partial class MainWindow : Window
     private byte[] _overview = new byte[320 * 180 * 4];
     private ulong _overviewSeq;
     private int _tick;
-    private readonly DispatcherQueueTimer _controlsTimer;
+    private readonly DispatcherQueueTimer _controlsTimer, _focusMarkTimer;
     private readonly Dictionary<string, object> _pendingControls = new();
     private double[] _isoRange = { 25, 3200 }, _shutterRange = { 1.0 / 8000, 1.0 / 30 };
     private double _cropX, _cropY, _cropW = 1, _cropH = 1;
@@ -98,15 +98,26 @@ public sealed partial class MainWindow : Window
         CaptureCombo.SelectionChanged += (_, _) => ApplyCapture();
         FpsCombo.SelectionChanged += (_, _) => ApplyCapture();
 
-        Preview.PointerPressed += (_, e) =>
+        _focusMarkTimer = DispatcherQueue.CreateTimer();
+        _focusMarkTimer.Interval = TimeSpan.FromMilliseconds(1200);
+        _focusMarkTimer.IsRepeating = false;
+        _focusMarkTimer.Tick += (_, _) => FocusMark.Opacity = 0;
+        PreviewHost.PointerPressed += (_, e) =>
         {
             // Click -> point within the displayed picture (Uniform letterboxing) -> focus/expose there.
-            if (_bitmap is null || Preview.ActualWidth <= 0) return;
-            var p = e.GetCurrentPoint(Preview).Position;
-            double scale = Math.Min(Preview.ActualWidth / _bitmap.PixelWidth, Preview.ActualHeight / _bitmap.PixelHeight);
+            if (_bitmap is null || PreviewHost.ActualWidth <= 0) return;
+            var p = e.GetCurrentPoint(PreviewHost).Position;
+            double scale = Math.Min(PreviewHost.ActualWidth / _bitmap.PixelWidth,
+                                    PreviewHost.ActualHeight / _bitmap.PixelHeight);
             double w = _bitmap.PixelWidth * scale, h = _bitmap.PixelHeight * scale;
-            double x = (p.X - (Preview.ActualWidth - w) / 2) / w, y = (p.Y - (Preview.ActualHeight - h) / 2) / h;
-            if (x is >= 0 and <= 1 && y is >= 0 and <= 1) _engine.TapFocus(x, y);
+            double x = (p.X - (PreviewHost.ActualWidth - w) / 2) / w, y = (p.Y - (PreviewHost.ActualHeight - h) / 2) / h;
+            if (x is < 0 or > 1 || y is < 0 or > 1) return;
+            _engine.TapFocus(x, y);
+            Canvas.SetLeft(FocusMark, p.X - FocusMark.Width / 2);
+            Canvas.SetTop(FocusMark, p.Y - FocusMark.Height / 2);
+            FocusMark.Opacity = 1;
+            _focusMarkTimer.Stop();
+            _focusMarkTimer.Start();
         };
         OverviewHost.SizeChanged += (_, _) => LayoutCropBox();
         _engine.Start();
@@ -293,6 +304,16 @@ public sealed partial class MainWindow : Window
             _cropW = crop.GetProperty("w").GetDouble();
             _cropH = crop.GetProperty("h").GetDouble();
             LayoutCropBox();
+        }
+        if (framing.TryGetProperty("zoom", out var zoomEl) && framing.TryGetProperty("reachableZoom", out var reachEl))
+        {
+            double wanted = zoomEl.GetDouble(), reachable = reachEl.GetDouble();
+            bool limited = FramingSwitch.IsOn && wanted > reachable + 0.05;
+            FramingZoomText.Text = $"{Math.Min(wanted, reachable):0.0}×";
+            FramingLimitText.Visibility = limited ? Visibility.Visible : Visibility.Collapsed;
+            if (limited)
+                FramingLimitText.Text = $"Limited to {reachable:0.0}× at this capture size so it stays sharp. " +
+                                        "Set Capture to Auto or 4K to get closer.";
         }
 
         // Live camera readouts and the ranges the manual sliders map onto.

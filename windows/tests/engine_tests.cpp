@@ -1,4 +1,4 @@
-// The engine end to end against the fake phone over TCP: decode correctness, recovery, reconnects,
+﻿// The engine end to end against the fake phone over TCP: decode correctness, recovery, reconnects,
 // pauses and the watchdog. Uses windows/testdata/pattern_1080p30.h264, whose frames carry their
 // frame number in the pixels, so we can check every decoded picture arrived in order and intact.
 
@@ -389,9 +389,8 @@ TEST(Engine, AutoFramingCropsToTheFace) {
     uint64_t seq = 0;
     ASSERT_TRUE(e.copyPreview(bgra, w, h, seq));
     EXPECT_EQ(e.status().faces, 1);
-    // A 1080p source can't be cropped without upscaling (maxUpscale 1), so the crop stays at the
-    // full 1920 width: framing correctly refuses to zoom a 1080p source.
-    EXPECT_EQ(w, 1920u);
+    // Default zoom 2x on a 1080p source is held back by the quality guard to 1.5x: a 1280 px crop.
+    EXPECT_EQ(w, 1280u);
 
     e.setFraming(false);
     std::this_thread::sleep_for(500ms);

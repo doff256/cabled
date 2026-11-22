@@ -1,4 +1,4 @@
-#include "framing.h"
+﻿#include "framing.h"
 
 #include <gtest/gtest.h>
 
@@ -40,13 +40,13 @@ TEST(Framing, DisabledGivesTheFullView) {
     EXPECT_DOUBLE_EQ(r.w, 3840);
 }
 
-TEST(Framing, ZoomsInOnAFaceWithHeadroomAndWithoutUpscaling) {
+TEST(Framing, ZoomsInOnAFaceWithHeadroom) {
     Framer f;
     double t = 0;
     // A face 10% of the frame wide, a bit right of centre, upper third.
     const Face face{7, 0.55, 0.30, 0.10, 0.18};
     const CropRect r = settle(f, {face}, 3840, 2160, t);
-    // Crop width = 3.2 x face width = 1229 px, but never below the 1920 px output (no upscaling).
+    // Default zoom 2x: half the 3840 px width.
     EXPECT_NEAR(r.w, 1920, 2);
     EXPECT_NEAR(r.w / r.h, 16.0 / 9.0, 0.01);
     // Face centred horizontally.
@@ -55,11 +55,14 @@ TEST(Framing, ZoomsInOnAFaceWithHeadroomAndWithoutUpscaling) {
     EXPECT_NEAR((face.y * 2160 - r.y) / r.h, 0.18, 0.03);
 }
 
-TEST(Framing, BigFaceGetsAWiderShot) {
-    Framer f;
-    double t = 0;
-    const CropRect r = settle(f, {{1, 0.40, 0.20, 0.20, 0.35}}, 3840, 2160, t);
-    EXPECT_NEAR(r.w, 0.20 * 3840 * 3.2, 25);
+// Owner feedback on R8: the zoom is what the slider says, not something the framer changes.
+TEST(Framing, KeepsTheZoomTheUserSetWhateverTheFaceSize) {
+    Framer a, b;
+    double ta = 0, tb = 0;
+    const CropRect nearby = settle(a, {{1, 0.40, 0.20, 0.20, 0.35}}, 3840, 2160, ta);
+    const CropRect far = settle(b, {{1, 0.45, 0.30, 0.05, 0.09}}, 3840, 2160, tb);
+    EXPECT_NEAR(nearby.w, 1920, 2);
+    EXPECT_NEAR(far.w, 1920, 2);
 }
 
 TEST(Framing, IgnoresSmallMovesButFollowsBigOnes) {
@@ -86,21 +89,26 @@ TEST(Framing, MovesSmoothlyNotInJumps) {
     EXPECT_LT(biggestStep, 300);  // px per frame: a glide, not a cut (the whole move is ~2300 px)
 }
 
-TEST(Framing, TightnessShowsMoreOrLess) {
-    FramingSettings wide, tight;
+TEST(Framing, SliderGoesFromWholeViewToClose) {
+    FramingSettings wide, close;
     wide.setTightness(0);
-    tight.setTightness(1);
-    wide.maxUpscale = tight.maxUpscale = 2;  // let both reach their natural size
+    close.setTightness(1);
     Framer a, b;
     double ta = 0, tb = 0;
     const std::vector<Face> face = {{1, 0.45, 0.30, 0.08, 0.15}};
     const CropRect rw = settle(a, face, 3840, 2160, ta, 6.0, wide);
-    const CropRect rt = settle(b, face, 3840, 2160, tb, 6.0, tight);
-    // Wide = 5x face (1536 px); tight would be 2.2x (676 px) but the quality guard stops it at
-    // 1920 / maxUpscale = 960 px.
-    EXPECT_GT(rw.w, rt.w * 1.5);
-    EXPECT_NEAR(rt.w, 960, 2);
-    EXPECT_DOUBLE_EQ(tight.tightness(), 1.0);
+    const CropRect rc = settle(b, face, 3840, 2160, tb, 6.0, close);
+    EXPECT_NEAR(rw.w, 3840, 2);  // the whole view
+    EXPECT_NEAR(rc.w, 1280, 2);  // 3x
+    EXPECT_DOUBLE_EQ(close.tightness(), 1.0);
+}
+
+TEST(Framing, SliderWorksWithNobodyInShot) {
+    FramingSettings s;
+    s.setTightness(1);
+    Framer f;
+    double t = 0;
+    EXPECT_NEAR(settle(f, {}, 3840, 2160, t, 6.0, s).w, 1280, 2);
 }
 
 TEST(Framing, GroupFramingFitsEveryone) {
@@ -121,25 +129,35 @@ TEST(Framing, GroupFramingFitsEveryone) {
     EXPECT_LT(one.w, r.w);
 }
 
-TEST(Framing, HoldsThenReturnsToFullViewWhenTheFaceIsLost) {
+TEST(Framing, StaysPutWhenTheFaceIsLost) {
     Framer f;
     double t = 0;
-    const CropRect framed = settle(f, {{1, 0.50, 0.30, 0.10, 0.18}}, 3840, 2160, t);
-    const CropRect held = settle(f, {}, 3840, 2160, t, 1.0);  // within holdSeconds
-    EXPECT_NEAR(held.w, framed.w, 5);
-    const CropRect back = settle(f, {}, 3840, 2160, t, 8.0);
-    EXPECT_NEAR(back.w, 3840, 10);
+    const CropRect framed = settle(f, {{1, 0.70, 0.30, 0.10, 0.18}}, 3840, 2160, t);
+    const CropRect later = settle(f, {}, 3840, 2160, t, 8.0);
+    EXPECT_NEAR(later.w, framed.w, 2);
+    EXPECT_NEAR(later.x, framed.x, 2);
 }
 
-TEST(Framing, MaxZoomAllowsTighterCrops) {
-    Framer f;
-    double t = 0;
+TEST(Framing, QualityGuardLimitsTheZoom) {
     FramingSettings s;
-    s.maxUpscale = 2.0;
-    const CropRect r = settle(f, {{1, 0.50, 0.30, 0.10, 0.18}}, 3840, 2160, t, 6.0, s);
-    EXPECT_NEAR(r.w, 0.10 * 3840 * 3.2, 3);  // 1229 px, upscaled to 1920
+    s.setTightness(1);  // 3x asked for
+    Framer f;
+    double t = 0;
+    // 1080p capture for 1080p output: at most 1.5x (upscaled) before it gets too soft.
+    const CropRect r = settle(f, {{1, 0.50, 0.30, 0.10, 0.18}}, 1920, 1080, t, 6.0, s);
+    EXPECT_NEAR(r.w, 1280, 2);
+    EXPECT_NEAR(reachableZoom(1920, 1080, 1920, 1080, s), 1.5, 1e-9);
+    EXPECT_NEAR(reachableZoom(3840, 2160, 1920, 1080, s), 3.0, 1e-9);
 }
 
+TEST(Framing, ResolutionChangeKeepsTheFraming) {
+    Framer f;
+    double t = 0;
+    const CropRect before = settle(f, {{1, 0.70, 0.30, 0.10, 0.18}}, 3840, 2160, t);
+    // Capture drops to 1080p: the very next frame is still looking at the same spot.
+    const CropRect after = f.update({{1, 0.70, 0.30, 0.10, 0.18}}, 1920, 1080, 1920, 1080, t += 1.0 / 30, {});
+    EXPECT_NEAR(after.x + after.w / 2, (before.x + before.w / 2) / 2, 30);
+}
 TEST(Framing, StaysInsideTheFrame) {
     Framer f;
     double t = 0;

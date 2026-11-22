@@ -154,6 +154,46 @@ final class VideoPipeline: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                        lowLatencyRateControl: encoder.lowLatencyRateControl, cameraId: device.uniqueID)
     }
 
+    /// Fast path (R8): same camera, new size / frame rate / codec. Changing the format of the running
+    /// session takes a few frames; tearing it down and building a new one takes a second or more.
+    /// Nil when it can't be done this way (the caller then restarts the whole pipeline).
+    func reconfigure(_ settings: Settings) -> Applied? {
+        guard session.isRunning, let device = queue.sync(execute: { self.device }),
+              settings.cameraId == nil || settings.cameraId == device.uniqueID,
+              let format = Self.pickFormat(device, width: settings.width, height: settings.height, fps: settings.fps)
+        else { return nil }
+        session.beginConfiguration()
+        do {
+            try device.lockForConfiguration()
+            if device.activeFormat != format { device.activeFormat = format }
+            let frameDuration = CMTime(value: 1, timescale: CMTimeScale(settings.fps.rounded()))
+            device.activeVideoMinFrameDuration = frameDuration
+            device.activeVideoMaxFrameDuration = frameDuration
+            // A new format resets zoom; put back what the PC remembered for this camera.
+            let wanted = settings.zoom > 0 ? settings.zoom : CameraCatalog.defaultZoom(device)
+            device.videoZoomFactor = CGFloat(clampZoom(wanted, device))
+            device.unlockForConfiguration()
+        } catch {
+            session.commitConfiguration()
+            return nil
+        }
+        session.commitConfiguration()
+        guard let encoder = try? makeEncoder(hevc: settings.hevc, width: Int(settings.width),
+                                             height: Int(settings.height), fps: settings.fps,
+                                             bitrate: settings.bitrate) else { return nil }
+        queue.sync {
+            self.encoder?.invalidate()
+            self.encoder = encoder  // captureOutput swaps it again if the frames are rotated
+            self.encoderSize = (Int(settings.width), Int(settings.height))
+            self.encoderHevc = encoder.hevc
+            self.encoderFps = settings.fps
+            self.targetBitrate = settings.bitrate
+            self.currentBitrate = settings.bitrate
+        }
+        return Applied(width: settings.width, height: settings.height, fps: settings.fps, hevc: encoder.hevc,
+                       lowLatencyRateControl: encoder.lowLatencyRateControl, cameraId: device.uniqueID)
+    }
+
     private func makeEncoder(hevc: Bool, width: Int, height: Int, fps: Double, bitrate: Int) throws -> VideoEncoder {
         let deliver: VideoEncoder.Output = { [weak self] data, keyframe, ptsNs in
             guard let self else { return }
@@ -320,9 +360,16 @@ final class VideoPipeline: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
             defer { device.unlockForConfiguration() }
             let angle = self.rotationAngle
 
+            // A clicked point only sticks if face-driven focus/exposure is off: with a face in view
+            // iOS otherwise keeps steering both to the face and ignores the point (build 9 test).
+            // Choosing "auto" again hands control back to iOS (faces included, centre of frame).
             if let focus = c["focus"] as? [String: Any] {
                 if let p = focus["point"] as? [Double], p.count == 2, device.isFocusPointOfInterestSupported {
+                    device.automaticallyAdjustsFaceDrivenAutoFocusEnabled = false
+                    device.isFaceDrivenAutoFocusEnabled = false
                     device.focusPointOfInterest = Self.unrotate(CGPoint(x: p[0], y: p[1]), by: angle)
+                    // Setting the mode is what starts focusing on the new point.
+                    if device.isFocusModeSupported(.autoFocus) { device.focusMode = .autoFocus }
                     if device.isFocusModeSupported(.continuousAutoFocus) { device.focusMode = .continuousAutoFocus }
                 }
                 switch focus["mode"] as? String {
@@ -331,6 +378,8 @@ final class VideoPipeline: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                         device.setFocusModeLocked(lensPosition: Float(min(max(pos, 0), 1)), completionHandler: nil)
                     }
                 case "auto":
+                    device.automaticallyAdjustsFaceDrivenAutoFocusEnabled = true
+                    if device.isFocusPointOfInterestSupported { device.focusPointOfInterest = CGPoint(x: 0.5, y: 0.5) }
                     if device.isFocusModeSupported(.continuousAutoFocus) { device.focusMode = .continuousAutoFocus }
                 default: break
                 }
@@ -338,11 +387,19 @@ final class VideoPipeline: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
 
             if let exposure = c["exposure"] as? [String: Any] {
                 if let p = exposure["point"] as? [Double], p.count == 2, device.isExposurePointOfInterestSupported {
+                    device.automaticallyAdjustsFaceDrivenAutoExposureEnabled = false
+                    device.isFaceDrivenAutoExposureEnabled = false
                     device.exposurePointOfInterest = Self.unrotate(CGPoint(x: p[0], y: p[1]), by: angle)
                     if device.isExposureModeSupported(.continuousAutoExposure) { device.exposureMode = .continuousAutoExposure }
                 }
                 switch exposure["mode"] as? String {
                 case "auto":
+                    if exposure["point"] == nil && exposure["bias"] == nil {  // a brightness tweak keeps the point
+                        device.automaticallyAdjustsFaceDrivenAutoExposureEnabled = true
+                        if device.isExposurePointOfInterestSupported {
+                            device.exposurePointOfInterest = CGPoint(x: 0.5, y: 0.5)
+                        }
+                    }
                     if device.isExposureModeSupported(.continuousAutoExposure) { device.exposureMode = .continuousAutoExposure }
                     if let bias = exposure["bias"] as? Double {
                         let b = min(max(Float(bias), device.minExposureTargetBias), device.maxExposureTargetBias)

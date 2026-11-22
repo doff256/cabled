@@ -40,11 +40,16 @@
 
         <!-- Preview: exactly what the virtual camera sends. Click to focus there. -->
         <Border Grid.Row="1" CornerRadius="8" Background="#FF101114">
-            <Grid>
+            <Grid x:Name="PreviewHost" Background="Transparent">
                 <Image x:Name="Preview" Stretch="Uniform" />
                 <TextBlock x:Name="PreviewHint" HorizontalAlignment="Center" VerticalAlignment="Center"
                            Style="{StaticResource BodyTextBlockStyle}" Foreground="#99FFFFFF"
-                           Text="No video yet" />
+                           Text="No video yet" IsHitTestVisible="False" />
+                <!-- Where the last click focused (fades out) -->
+                <Canvas IsHitTestVisible="False">
+                    <Rectangle x:Name="FocusMark" Width="56" Height="56" Stroke="#FFFFD60A" StrokeThickness="1.5"
+                               Opacity="0" />
+                </Canvas>
             </Grid>
         </Border>
 
@@ -70,9 +75,15 @@
                             </Canvas>
                         </Grid>
                     </Border>
-                    <TextBlock Text="Show more ↔ show less" Style="{StaticResource CaptionTextBlockStyle}"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                    <Slider x:Name="TightnessSlider" Minimum="0" Maximum="100" Value="36" IsThumbToolTipEnabled="False" />
+                    <Grid>
+                        <TextBlock Text="Wide ↔ close" Style="{StaticResource CaptionTextBlockStyle}"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <TextBlock x:Name="FramingZoomText" HorizontalAlignment="Right"
+                                   Style="{StaticResource CaptionTextBlockStyle}" Text="2.0×" />
+                    </Grid>
+                    <Slider x:Name="TightnessSlider" Minimum="0" Maximum="100" Value="50" IsThumbToolTipEnabled="False" />
+                    <TextBlock x:Name="FramingLimitText" Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap"
+                               Foreground="{ThemeResource SystemFillColorCautionBrush}" Visibility="Collapsed" />
                     <Grid ColumnSpacing="8">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />

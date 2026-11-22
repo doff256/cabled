@@ -11,6 +11,8 @@
 #include "vcam_output.h"
 #include "video.h"
 
+#include <cstdio>
+
 extern "C" {
 #include <libavutil/frame.h>
 }
@@ -838,6 +840,10 @@ void Engine::Impl::onFrame(const AVFrame* f, const Packet& p, uint64_t decodeSta
         st.framingInfo = {{"tightness", framingSettings.tightness()},
                           {"speed", framingSettings.speed},
                           {"group", framingSettings.group},
+                          {"zoom", framingSettings.zoom},
+                          // Closest the quality guard allows at this capture size (UI shows the limit).
+                          {"reachableZoom", reachableZoom(uint32_t(f->width), uint32_t(f->height), outW, outH,
+                                                          framingSettings)},
                           {"sourceWidth", f->width},
                           {"sourceHeight", f->height},
                           {"crop",
@@ -1072,6 +1078,9 @@ void Engine::tapToFocus(double x, double y) {
     const double fx = std::clamp((crop.x + std::clamp(x, 0.0, 1.0) * crop.w) / w, 0.0, 1.0);
     const double fy = std::clamp((crop.y + std::clamp(y, 0.0, 1.0) * crop.h) / h, 0.0, 1.0);
     impl_->sendJson(Type::ControlSet, {{"focus", {{"point", {fx, fy}}}}, {"exposure", {{"point", {fx, fy}}}}});
+    char text[96];
+    std::snprintf(text, sizeof text, "Focus and exposure at %.2f, %.2f of the camera view", fx, fy);
+    impl_->log(text);
 }
 
 void Engine::setCapture(uint32_t width, uint32_t height, double fps) {

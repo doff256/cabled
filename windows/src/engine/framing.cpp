@@ -19,22 +19,30 @@ CropRect fillCrop(uint32_t srcW, uint32_t srcH, uint32_t outW, uint32_t outH) {
     return r;
 }
 
-void FramingSettings::setTightness(double t) {
-    t = std::clamp(t, 0.0, 1.0);
-    widthFactor = 5.0 - 2.8 * t;  // 5x face width (shows the room) .. 2.2x (face fills it)
-}
+void FramingSettings::setTightness(double t) { zoom = 1.0 + (kMaxZoom - 1.0) * std::clamp(t, 0.0, 1.0); }
 
-double FramingSettings::tightness() const { return std::clamp((5.0 - widthFactor) / 2.8, 0.0, 1.0); }
+double FramingSettings::tightness() const { return std::clamp((zoom - 1.0) / (kMaxZoom - 1.0), 0.0, 1.0); }
+
+namespace {
+// Width of the crop for the user's zoom, held back by the quality guard.
+double zoomedWidth(const CropRect& full, uint32_t outW, const FramingSettings& s) {
+    const double minW = std::min(full.w, double(outW) / std::max(1.0, s.maxUpscale));
+    return std::clamp(full.w / std::max(1.0, s.zoom), minW, full.w);
+}
+}  // namespace
+
+double reachableZoom(uint32_t srcW, uint32_t srcH, uint32_t outW, uint32_t outH, const FramingSettings& s) {
+    if (!srcW || !srcH || !outW || !outH) return 1.0;
+    const CropRect full = fillCrop(srcW, srcH, outW, outH);
+    return std::max(1.0, full.w / std::min(full.w, double(outW) / std::max(1.0, s.maxUpscale)));
+}
 
 CropRect Framer::target(const Face& f, double faceW, uint32_t srcW, uint32_t srcH, uint32_t outW, uint32_t outH,
                         const FramingSettings& s) const {
     const CropRect full = fillCrop(srcW, srcH, outW, outH);
     const double aspect = double(outW) / double(outH);
-    // Head and shoulders, but never smaller than the quality guard allows, never bigger than the frame.
-    // A group must also fit side by side with a margin of half a face on each side.
-    const double minW = std::min(full.w, double(outW) / std::max(1.0, s.maxUpscale));
-    const double wanted = std::max(faceW * srcW * s.widthFactor, (f.w + faceW) * srcW);
-    double w = std::clamp(wanted, minW, full.w);
+    // The user's zoom; a group widens it so everyone fits with half a face of margin each side.
+    double w = std::clamp(std::max(zoomedWidth(full, outW, s), (f.w + faceW) * srcW), 16.0, full.w);
     double h = w / aspect;
     const double faceCx = (f.x + f.w / 2) * srcW;
     const double faceTop = f.y * srcH;
@@ -52,17 +60,25 @@ CropRect Framer::update(const std::vector<Face>& faces, uint32_t srcW, uint32_t 
         initialized_ = false;
         return full;
     }
-    if (!initialized_ || srcW != srcW_ || srcH != srcH_) {  // first frame, or rotation/format change
+    const double zoomW = zoomedWidth(full, outW, s);
+    const bool sameShape = initialized_ && srcW_ && srcH_ &&
+                           std::abs(double(srcW) / srcH - double(srcW_) / srcH_) < 0.01;
+    if (initialized_ && sameShape && (srcW != srcW_ || srcH != srcH_)) {
+        // New capture resolution, same picture: carry the framing over instead of starting again.
+        const double k = double(srcW) / srcW_;
+        cx_ *= k, cy_ *= k, w_ *= k, tx_ *= k, ty_ *= k, tw_ *= k, vx_ *= k, vy_ *= k, vw_ *= k;
+        srcW_ = srcW;
+        srcH_ = srcH;
+    } else if (!initialized_ || srcW != srcW_ || srcH != srcH_) {  // first frame, or rotation
         initialized_ = true;
         srcW_ = srcW;
         srcH_ = srcH;
         cx_ = tx_ = full.x + full.w / 2;
         cy_ = ty_ = full.y + full.h / 2;
-        w_ = tw_ = full.w;
+        w_ = tw_ = zoomW;
         vx_ = vy_ = vw_ = 0;
         lastTime_ = now;
         primaryId_ = -1;
-        lastSeen_ = -1e9;
     }
 
     // 1. Primary face: keep the one we follow while it's visible; otherwise the most prominent
@@ -107,26 +123,24 @@ CropRect Framer::update(const std::vector<Face>& faces, uint32_t srcW, uint32_t 
         }
     }
 
-    // 2. Target: frame the face(s); after losing them, hold, then go back to the full view.
+    // 2. Target: frame the face(s). Nobody in view: stay where we are (they usually come back
+    //    to the same place), at the user's zoom.
     if (primary) {
         primaryId_ = primary->id;
-        lastSeen_ = now;
         const double faceW = primary == &groupBox ? groupFaceW : primary->w;
         const CropRect t = target(*primary, faceW, srcW, srcH, outW, outH, s);
         const double ncx = t.x + t.w / 2, ncy = t.y + t.h / 2;
-        // 3. Dead zone: small moves and size changes are noise (or someone breathing).
+        // 3. Dead zone: small moves are noise (or someone breathing). Size follows the slider at once.
         const bool moved = std::abs(ncx - tx_) > s.deadZone * tw_ || std::abs(ncy - ty_) > s.deadZone * tw_ / 2;
-        const bool resized = std::abs(t.w - tw_) > 0.07 * tw_;
+        const bool resized = std::abs(t.w - tw_) > 0.02 * tw_;
         if (moved || resized) {
             tx_ = ncx;
             ty_ = ncy;
             tw_ = t.w;
         }
-    } else if (now - lastSeen_ > s.holdSeconds) {
-        tx_ = full.x + full.w / 2;
-        ty_ = full.y + full.h / 2;
-        tw_ = full.w;
+    } else {
         primaryId_ = -1;
+        tw_ = zoomW;  // the slider still works with nobody in shot
     }
 
     // 4. Critically damped springs (same feel at any frame rate); size moves slower than position.

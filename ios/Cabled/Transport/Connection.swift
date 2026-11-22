@@ -143,6 +143,7 @@ final class Connection {
     // MARK: Video
 
     private func configure(_ request: [String: Any]) {
+        if (request["enabled"] as? Bool) != false, reconfigureRunning(request) { return }
         stopVideo()
         if (request["enabled"] as? Bool) == false {
             send(.configured, json: ["ok": true, "enabled": false])
@@ -150,6 +151,11 @@ final class Connection {
             log("Video stopped by the PC")
             return
         }
+        let settings = Self.settings(from: request)
+        startVideo(settings)
+    }
+
+    private static func settings(from request: [String: Any]) -> VideoPipeline.Settings {
         var settings = VideoPipeline.Settings()
         if let w = request["width"] as? Int { settings.width = Int32(w) }
         if let h = request["height"] as? Int { settings.height = Int32(h) }
@@ -158,7 +164,34 @@ final class Connection {
         settings.hevc = (request["codec"] as? String) == "hevc"
         settings.cameraId = request["camera"] as? String
         settings.zoom = request["zoom"] as? Double ?? 0
+        return settings
+    }
 
+    /// Same camera, still streaming: change the format in place instead of restarting (R8).
+    private func reconfigureRunning(_ request: [String: Any]) -> Bool {
+        videoLock.lock()
+        let p = pipeline, out = videoOut
+        videoLock.unlock()
+        guard let p, let out else { return false }
+        let settings = Self.settings(from: request)
+        guard let applied = p.reconfigure(settings) else { return false }
+        out.setCodec(hevc: applied.hevc)
+        reportStarted(applied, bitrate: settings.bitrate)
+        return true
+    }
+
+    private func reportStarted(_ applied: VideoPipeline.Applied, bitrate: Int) {
+        send(.configured, json: ["ok": true, "enabled": true, "codec": applied.hevc ? "hevc" : "h264",
+                                 "width": Int(applied.width), "height": Int(applied.height),
+                                 "fps": applied.fps, "bitrate": bitrate,
+                                 "lowLatencyRateControl": applied.lowLatencyRateControl])
+        let description = "Streaming \(applied.width)×\(applied.height) @ \(Int(applied.fps))"
+            + (applied.hevc ? " HEVC" : "")
+        context.emit(.streaming(description))
+        log(description + (applied.lowLatencyRateControl ? " (low-latency encoder)" : ""))
+    }
+
+    private func startVideo(_ settings: VideoPipeline.Settings) {
         let out = VideoOutQueue(send: { [weak self] bytes in self?.sendAll(bytes) ?? false },
                                 onStall: { [weak self] in
                                     guard let self else { return }
@@ -182,14 +215,7 @@ final class Connection {
             out.start()
             let applied = try pipeline.start(settings)
             out.setCodec(hevc: applied.hevc)
-            send(.configured, json: ["ok": true, "enabled": true, "codec": applied.hevc ? "hevc" : "h264",
-                                     "width": Int(applied.width), "height": Int(applied.height),
-                                     "fps": applied.fps, "bitrate": settings.bitrate,
-                                     "lowLatencyRateControl": applied.lowLatencyRateControl])
-            let description = "Streaming \(applied.width)×\(applied.height) @ \(Int(applied.fps))"
-                + (applied.hevc ? " HEVC" : "")
-            context.emit(.streaming(description))
-            log(description + (applied.lowLatencyRateControl ? " (low-latency encoder)" : ""))
+            reportStarted(applied, bitrate: settings.bitrate)
         } catch {
             stopVideo()
             send(.configured, json: ["ok": false, "error": "\(error)"])
