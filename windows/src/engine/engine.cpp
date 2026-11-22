@@ -213,6 +213,7 @@ struct Engine::Impl {
     // Last crop, for tap-to-focus (decode thread writes, API reads).
     std::mutex cropMutex;
     CropRect lastCrop;
+    double lastBaseX = 0, lastBaseY = 0, lastTargetW = 0, lastOutAspect = 16.0 / 9.0;
     uint32_t lastSrcW = 0, lastSrcH = 0;
 
     // Overview thumbnail (whole camera view)
@@ -354,6 +355,8 @@ struct Engine::Impl {
             w.thermal = st.thermal;  // F7: hot phone -> lighter job
         }
         std::lock_guard<std::mutex> lock(prefsMutex);
+        // A zoomed shot wants extra pixels to crop from, following or not (framing off still zooms).
+        w.framing = framingEnabled || framingKnobs.zoom > 1.05;
         w.camera = wantedCamera;
         w.pinWidth = pinWidth;
         w.pinHeight = pinHeight;
@@ -831,6 +834,10 @@ void Engine::Impl::onFrame(const AVFrame* f, const Packet& p, uint64_t decodeSta
     {
         std::lock_guard<std::mutex> lock(cropMutex);
         lastCrop = crop;
+        lastBaseX = framer.baseX();
+        lastBaseY = framer.baseY();
+        lastTargetW = framer.targetWidth();
+        lastOutAspect = outH ? double(outW) / outH : 16.0 / 9.0;
         lastSrcW = uint32_t(f->width);
         lastSrcH = uint32_t(f->height);
     }
@@ -1048,6 +1055,20 @@ void Engine::setFramingOptions(double tightness, double speed, bool group) {
     impl_->framingKnobs.setTightness(tightness);
     impl_->framingKnobs.speed = std::clamp(speed, 0.3, 3.0);
     impl_->framingKnobs.group = group;
+}
+
+void Engine::moveFraming(double centerX, double centerY) {
+    double offsetX = 0, offsetY = 0;
+    if (centerX >= 0 && centerY >= 0) {  // negative = back to where the framer would look
+        std::lock_guard<std::mutex> lock(impl_->cropMutex);
+        const double w = impl_->lastTargetW, h = w / impl_->lastOutAspect;
+        if (!impl_->lastSrcW || w <= 0) return;
+        offsetX = (std::clamp(centerX, 0.0, 1.0) * impl_->lastSrcW - impl_->lastBaseX) / w;
+        offsetY = (std::clamp(centerY, 0.0, 1.0) * impl_->lastSrcH - impl_->lastBaseY) / h;
+    }
+    std::lock_guard<std::mutex> lock(impl_->prefsMutex);
+    impl_->framingKnobs.offsetX = std::clamp(offsetX, -2.0, 2.0);
+    impl_->framingKnobs.offsetY = std::clamp(offsetY, -2.0, 2.0);
 }
 
 void Engine::setControls(const nlohmann::json& controls) {

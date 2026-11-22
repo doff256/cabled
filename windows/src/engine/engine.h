@@ -121,6 +121,9 @@ public:
     void setControls(const nlohmann::json& controls);
     // Tap on the preview (0..1 in the output picture) -> focus and expose there.
     void tapToFocus(double x, double y);
+    // Box-in-box drag: put the crop's centre here (normalized whole camera view). The nudge is kept
+    // relative to the face, so following carries on. Negative values remove the nudge.
+    void moveFraming(double centerX, double centerY);
     // Pin the capture size / frame rate (0 = automatic).
     void setCapture(uint32_t width, uint32_t height, double fps);
     // Small picture of the whole camera view (the crop is status().framingInfo["crop"]).

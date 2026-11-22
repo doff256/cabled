@@ -32,10 +32,11 @@ TEST(Framing, FillCropForLandscapeAndPortraitSources) {
     EXPECT_DOUBLE_EQ(fourThree.h, 2268);
 }
 
-TEST(Framing, DisabledGivesTheFullView) {
+TEST(Framing, FollowingOffAtWideGivesTheFullView) {
     Framer f;
     FramingSettings s;
     s.enabled = false;
+    s.setTightness(0);
     const CropRect r = f.update({{1, 0.4, 0.3, 0.1, 0.1}}, 3840, 2160, 1920, 1080, 1.0, s);
     EXPECT_DOUBLE_EQ(r.w, 3840);
 }
@@ -148,6 +149,33 @@ TEST(Framing, QualityGuardLimitsTheZoom) {
     EXPECT_NEAR(r.w, 1280, 2);
     EXPECT_NEAR(reachableZoom(1920, 1080, 1920, 1080, s), 1.5, 1e-9);
     EXPECT_NEAR(reachableZoom(3840, 2160, 1920, 1080, s), 3.0, 1e-9);
+}
+
+// Owner request after build 10: nudge the shot a bit up/down/left/right from the box-in-box.
+TEST(Framing, NudgeMovesTheShotAndFollowingCarriesOn) {
+    FramingSettings s;
+    s.offsetX = 0.25;  // a quarter of the crop to the right
+    s.offsetY = -0.1;  // a bit higher
+    Framer plain, nudged;
+    double ta = 0, tb = 0;
+    const CropRect a = settle(plain, {{1, 0.40, 0.35, 0.10, 0.18}}, 3840, 2160, ta);
+    const CropRect b = settle(nudged, {{1, 0.40, 0.35, 0.10, 0.18}}, 3840, 2160, tb, 6.0, s);
+    EXPECT_NEAR(b.x - a.x, 0.25 * 1920, 3);
+    EXPECT_NEAR(b.y - a.y, -0.1 * 1080, 3);
+    // The person walks right: the nudged shot follows, keeping the nudge.
+    const CropRect c = settle(nudged, {{1, 0.55, 0.35, 0.10, 0.18}}, 3840, 2160, tb, 6.0, s);
+    EXPECT_NEAR(c.x - b.x, 0.15 * 3840, 5);
+}
+
+TEST(Framing, FollowingOffKeepsAStillZoomedShotYouCanMove) {
+    FramingSettings s;
+    s.enabled = false;
+    s.offsetX = -0.5;
+    Framer f;
+    double t = 0;
+    const CropRect r = settle(f, {{1, 0.80, 0.30, 0.10, 0.18}}, 3840, 2160, t, 6.0, s);  // face ignored
+    EXPECT_NEAR(r.w, 1920, 2);
+    EXPECT_NEAR(r.x + r.w / 2, 1920 - 0.5 * 1920, 3);
 }
 
 TEST(Framing, ResolutionChangeKeepsTheFraming) {

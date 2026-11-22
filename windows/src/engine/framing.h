@@ -28,6 +28,9 @@ struct FramingSettings {
     double maxUpscale = 1.5;  // quality guard: crop never smaller than output / this
     double deadZone = 0.05;   // ignore moves smaller than this fraction of the crop width
     double speed = 1.0;       // spring speed multiplier (calm < 1 < fast)
+    // The user's nudge (box-in-box drag), in crop widths/heights from where the framer would look:
+    // the face when following, the middle of the view when not. 0, 0 = no nudge.
+    double offsetX = 0, offsetY = 0;
 
     static constexpr double kMaxZoom = 3.0;
     // User-facing knob (R8): 0 = wide (whole view), 1 = close (kMaxZoom).
@@ -47,6 +50,11 @@ public:
     CropRect update(const std::vector<Face>& faces, uint32_t srcW, uint32_t srcH, uint32_t outW, uint32_t outH,
                     double now, const FramingSettings& settings);
     void reset() { initialized_ = false; }
+    // Where the framer would look before the user's nudge (source pixels), and the crop size it's
+    // heading for: lets a drag in the UI be turned into an offset.
+    double baseX() const { return bx_; }
+    double baseY() const { return by_; }
+    double targetWidth() const { return tw_; }
 
 private:
     // `subject`: one face, or (group framing) the union of everyone; `faceW` drives the width.
@@ -58,6 +66,7 @@ private:
     double cx_ = 0, cy_ = 0, w_ = 0;    // current crop centre and width (pixels)
     double vx_ = 0, vy_ = 0, vw_ = 0;   // spring velocities
     double tx_ = 0, ty_ = 0, tw_ = 0;   // current target
+    double bx_ = 0, by_ = 0;            // target centre before the user's nudge
     double lastTime_ = 0;
     int primaryId_ = -1;
 };

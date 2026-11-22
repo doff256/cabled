@@ -129,6 +129,10 @@ void cabled_engine_tap_focus(cabled_engine* e, double x, double y) {
     if (e) e->engine->tapToFocus(x, y);
 }
 
+void cabled_engine_move_framing(cabled_engine* e, double x, double y) {
+    if (e) e->engine->moveFraming(x, y);
+}
+
 void cabled_engine_set_capture(cabled_engine* e, int32_t width, int32_t height, double fps) {
     if (e) e->engine->setCapture(uint32_t(std::max(0, width)), uint32_t(std::max(0, height)), fps);
 }

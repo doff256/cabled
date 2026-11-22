@@ -67,7 +67,7 @@
                     </Grid>
                     <!-- Box in a box: the whole camera view, with what's being sent outlined -->
                     <Border CornerRadius="6" Background="#FF101114">
-                        <Grid x:Name="OverviewHost">
+                        <Grid x:Name="OverviewHost" Background="Transparent" Height="160">
                             <Image x:Name="OverviewImage" Stretch="Uniform" />
                             <Canvas x:Name="OverviewCanvas">
                                 <Rectangle x:Name="CropBox" Stroke="#FF5A78C8" StrokeThickness="2" RadiusX="3" RadiusY="3"
@@ -75,6 +75,12 @@
                             </Canvas>
                         </Grid>
                     </Border>
+                    <Grid>
+                        <TextBlock Text="Drag the box to adjust the shot" Style="{StaticResource CaptionTextBlockStyle}"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" />
+                        <HyperlinkButton x:Name="NudgeResetButton" Content="Reset" HorizontalAlignment="Right"
+                                         Padding="4,0" FontSize="12" Visibility="Collapsed" />
+                    </Grid>
                     <Grid>
                         <TextBlock Text="Wide ↔ close" Style="{StaticResource CaptionTextBlockStyle}"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />

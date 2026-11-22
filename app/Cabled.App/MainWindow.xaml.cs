@@ -36,6 +36,9 @@ public sealed partial class MainWindow : Window
     private readonly Dictionary<string, object> _pendingControls = new();
     private double[] _isoRange = { 25, 3200 }, _shutterRange = { 1.0 / 8000, 1.0 / 30 };
     private double _cropX, _cropY, _cropW = 1, _cropH = 1;
+    private bool _dragging;
+    private long _dragEndedAt;
+    private double _grabDx, _grabDy;
 
     public MainWindow(string? tcpTarget, bool debugFaces = false)
     {
@@ -120,6 +123,39 @@ public sealed partial class MainWindow : Window
             _focusMarkTimer.Start();
         };
         OverviewHost.SizeChanged += (_, _) => LayoutCropBox();
+
+        // Box in a box: drag the box (or click anywhere) to put the shot there. The box follows the
+        // pointer at once; the engine's crop glides after it and keeps following the face.
+        OverviewHost.PointerPressed += (_, e) =>
+        {
+            if (!OverviewRect(out double left, out double top, out double w, out double h)) return;
+            var p = e.GetCurrentPoint(OverviewHost).Position;
+            double nx = (p.X - left) / w, ny = (p.Y - top) / h;
+            bool onBox = nx >= _cropX && nx <= _cropX + _cropW && ny >= _cropY && ny <= _cropY + _cropH;
+            // Grab the box where it was clicked; a click outside it centres the box there.
+            _grabDx = onBox ? nx - (_cropX + _cropW / 2) : 0;
+            _grabDy = onBox ? ny - (_cropY + _cropH / 2) : 0;
+            _dragging = true;
+            OverviewHost.CapturePointer(e.Pointer);
+            DragBoxTo(nx, ny);
+            e.Handled = true;
+        };
+        OverviewHost.PointerMoved += (_, e) =>
+        {
+            if (!_dragging || !OverviewRect(out double left, out double top, out double w, out double h)) return;
+            var p = e.GetCurrentPoint(OverviewHost).Position;
+            DragBoxTo((p.X - left) / w, (p.Y - top) / h);
+        };
+        void EndDrag()
+        {
+            if (!_dragging) return;
+            _dragging = false;
+            _dragEndedAt = Environment.TickCount64;
+        }
+        OverviewHost.PointerReleased += (_, e) => { EndDrag(); OverviewHost.ReleasePointerCapture(e.Pointer); };
+        OverviewHost.PointerCaptureLost += (_, _) => EndDrag();
+        OverviewHost.DoubleTapped += (_, _) => ResetNudge();
+        NudgeResetButton.Click += (_, _) => ResetNudge();
         _engine.Start();
 
         _previewTimer = DispatcherQueue.CreateTimer();
@@ -297,7 +333,9 @@ public sealed partial class MainWindow : Window
     private void UpdateSidePanel(JsonElement s)
     {
         var framing = s.GetProperty("framing");
-        if (framing.TryGetProperty("crop", out var crop))
+        // While dragging (and just after, while the crop glides to the drop point) the box shows the
+        // pointer, not the engine, so it doesn't snap back.
+        if (!_dragging && Environment.TickCount64 - _dragEndedAt > 700 && framing.TryGetProperty("crop", out var crop))
         {
             _cropX = crop.GetProperty("x").GetDouble();
             _cropY = crop.GetProperty("y").GetDouble();
@@ -337,14 +375,42 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    // Where the thumbnail is drawn inside OverviewHost (Uniform letterboxing).
+    private bool OverviewRect(out double left, out double top, out double w, out double h)
+    {
+        left = top = w = h = 0;
+        if (_overviewBitmap is null || OverviewHost.ActualWidth <= 0 || OverviewHost.ActualHeight <= 0) return false;
+        double scale = Math.Min(OverviewHost.ActualWidth / _overviewBitmap.PixelWidth,
+                                OverviewHost.ActualHeight / _overviewBitmap.PixelHeight);
+        w = _overviewBitmap.PixelWidth * scale;
+        h = _overviewBitmap.PixelHeight * scale;
+        left = (OverviewHost.ActualWidth - w) / 2;
+        top = (OverviewHost.ActualHeight - h) / 2;
+        return true;
+    }
+
+    // Pointer at (nx, ny) of the whole view: box centre there (minus where it was grabbed), kept inside.
+    private void DragBoxTo(double nx, double ny)
+    {
+        double cx = Math.Clamp(nx - _grabDx, _cropW / 2, 1 - _cropW / 2);
+        double cy = Math.Clamp(ny - _grabDy, _cropH / 2, 1 - _cropH / 2);
+        _cropX = cx - _cropW / 2;
+        _cropY = cy - _cropH / 2;
+        LayoutCropBox();
+        _engine.MoveFraming(cx, cy);
+        NudgeResetButton.Visibility = Visibility.Visible;
+    }
+
+    private void ResetNudge()
+    {
+        _engine.ResetFramingNudge();
+        NudgeResetButton.Visibility = Visibility.Collapsed;
+    }
+
     // Box in a box: outline the part of the camera view being sent, over the overview thumbnail.
     private void LayoutCropBox()
     {
-        if (_overviewBitmap is null || OverviewHost.ActualWidth <= 0) return;
-        double scale = Math.Min(OverviewHost.ActualWidth / _overviewBitmap.PixelWidth,
-                                OverviewHost.ActualHeight / _overviewBitmap.PixelHeight);
-        double w = _overviewBitmap.PixelWidth * scale, h = _overviewBitmap.PixelHeight * scale;
-        double left = (OverviewHost.ActualWidth - w) / 2, top = (OverviewHost.ActualHeight - h) / 2;
+        if (!OverviewRect(out double left, out double top, out double w, out double h)) return;
         Canvas.SetLeft(CropBox, left + _cropX * w);
         Canvas.SetTop(CropBox, top + _cropY * h);
         CropBox.Width = Math.Max(2, _cropW * w);

@@ -51,6 +51,8 @@ CABLED_API void cabled_engine_set_framing_options(cabled_engine* engine, double 
 CABLED_API void cabled_engine_set_controls(cabled_engine* engine, const char* controls_json);
 /* x, y: 0..1 within the output picture. */
 CABLED_API void cabled_engine_tap_focus(cabled_engine* engine, double x, double y);
+/* Box-in-box drag: crop centre at x, y (0..1 of the whole camera view). Negative = remove the nudge. */
+CABLED_API void cabled_engine_move_framing(cabled_engine* engine, double x, double y);
 /* Pin capture size / fps; 0 = automatic. */
 CABLED_API void cabled_engine_set_capture(cabled_engine* engine, int32_t width, int32_t height, double fps);
 /* Small picture of the whole camera view; same contract as copy_preview. */
